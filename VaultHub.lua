@@ -157,16 +157,25 @@ local function saveConfig()
 	return ok
 end
 
+-- авто-действия, которые НЕ должны включаться сами при загрузке (иначе тепает/фармит сразу)
+local AUTO_KEYS = {"autoBid","autoFish","autoSell","autoWash","autoGrade","autoRepair",
+	"autoBuyDrink","autoStock","autoTrade","autoCollectAll","autoBuyItems","returnWhenFull"}
+
+local function resetAutoFlags()
+	for _, k in ipairs(AUTO_KEYS) do Config[k] = false end
+end
+
 local function loadConfig()
-	if not hasFS() then return false end
-	if not isfileF(CONFIG_FILE) then return false end
+	if not hasFS() then resetAutoFlags(); return false end
+	if not isfileF(CONFIG_FILE) then resetAutoFlags(); return false end
 	local ok, data = pcall(function() return HttpService:JSONDecode(readfileF(CONFIG_FILE)) end)
 	if ok and type(data)=="table" then
 		for k,v in pairs(data) do Config[k] = v end
 		Locale = Config.language or "ru"
-		return true
 	end
-	return false
+	-- всегда стартуем с выключенными авто-функциями
+	resetAutoFlags()
+	return true
 end
 
 local function exportConfig()
@@ -199,11 +208,16 @@ local function importConfig(str)
 	if ok and type(data)=="table" then
 		for k,v in pairs(data) do Config[k] = v end
 		Locale = Config.language or Locale
+		resetAutoFlags()
 		saveConfig()
 		return true
 	end
 	return false
 end
+
+-- загружаем конфиг СРАЗУ (до построения GUI), чтобы слайдеры/язык отразили сохранённое
+loadConfig()
+Locale = Config.language or "ru"
 
 ---------------------------------------------------------------------
 -- GAME API (реверс-обёртки)
@@ -1541,8 +1555,6 @@ end)
 ---------------------------------------------------------------------
 -- INIT
 ---------------------------------------------------------------------
-loadConfig()
-Locale = Config.language or "ru"
 buildTeleports()
 selectTab("home")
 LocalPlayer.CharacterAdded:Connect(function() task.wait(2); buildTeleports() end)
