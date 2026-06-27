@@ -1413,7 +1413,10 @@ do
 	end) end
 	-- авто-забор выигранных предметов
 	local pickItem = ev("Auction.AuctionPickupItem")
-	if pickItem then pickItem.OnClientEvent:Connect(function(...) pcall(function() pickItem:FireServer(...) end) end) end
+	if pickItem then pickItem.OnClientEvent:Connect(function(...)
+		local args = {...}
+		pcall(function() pickItem:FireServer(table.unpack(args)) end)
+	end) end
 end
 
 local function tpToBidArea()
