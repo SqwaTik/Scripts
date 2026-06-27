@@ -25,6 +25,7 @@ local UserInputService   = game:GetService("UserInputService")
 local ReplicatedStorage  = game:GetService("ReplicatedStorage")
 local Workspace          = game:GetService("Workspace")
 local HttpService        = game:GetService("HttpService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui   = LocalPlayer:WaitForChild("PlayerGui")
@@ -52,7 +53,15 @@ local L = {
 		title="VAULT HUB", subtitle="Охотники за хранилищами",
 		loading="Загрузка...", ready="Готово",
 		tab_home="Главная", tab_farm="Автофарм", tab_sell="Продажа", tab_process="Обработка",
-		tab_tp="Телепорты", tab_shop="Магазин", tab_settings="Настройки",
+		tab_tp="Телепорты", tab_shop="Магазин", tab_quest="Квесты", tab_other="Прочее", tab_settings="Настройки",
+		-- quest / other
+		auto_quest="Авто-квесты", quest_npc="NPC квестов", quest_take_new="Брать новый после сдачи",
+		anti_afk="Анти-АФК", keep_safes="Сейфы не продавать (в Locksmith)", keep_rods="Удочки не продавать",
+		fish_broken_sell="Сломанные удочки в магазин",
+		fly="Полёт (Fly)", fly_speed="Скорость полёта", walkspeed="Скорость ходьбы", jumppower="Сила прыжка",
+		noclip="Без коллизий (NoClip)", inf_jump="Бесконечный прыжок",
+		esp_players="ESP игроков", esp_containers="ESP контейнеров", esp_npc="ESP NPC",
+		predict_enable="Показывать эвенты",
 		-- home
 		networth="Состояние", coins="Монеты", players="Игроков", luck="Удача",
 		quick="Быстрые действия", uptime="Аптайм",
@@ -101,7 +110,14 @@ local L = {
 		title="VAULT HUB", subtitle="Vault Hunters Open World",
 		loading="Loading...", ready="Ready",
 		tab_home="Home", tab_farm="Auto Farm", tab_sell="Selling", tab_process="Processing",
-		tab_tp="Teleports", tab_shop="Shop", tab_settings="Settings",
+		tab_tp="Teleports", tab_shop="Shop", tab_quest="Quests", tab_other="Other", tab_settings="Settings",
+		auto_quest="Auto Quests", quest_npc="Quest NPC", quest_take_new="Take new after turn-in",
+		anti_afk="Anti-AFK", keep_safes="Keep safes (to Locksmith)", keep_rods="Keep fishing rods",
+		fish_broken_sell="List broken rods in shop",
+		fly="Fly", fly_speed="Fly speed", walkspeed="Walk speed", jumppower="Jump power",
+		noclip="NoClip", inf_jump="Infinite jump",
+		esp_players="ESP players", esp_containers="ESP containers", esp_npc="ESP NPC",
+		predict_enable="Show events",
 		networth="Net Worth", coins="Coins", players="Players", luck="Luck",
 		quick="Quick Actions", uptime="Uptime",
 		auto_bid="Auto Bid (auction)", min_bid="Skip if bid <",
@@ -163,6 +179,18 @@ local Config = {
 	washMin = 100, gradeMin = 100, procSource = "Inventory",
 	-- shop
 	autoBuyDrink = false, drinkTier = "1",
+	-- sell extra
+	keepSafes = true, keepRods = true,
+	-- quests
+	autoQuest = false, questNpc = "Все", questTakeNew = true,
+	-- fishing extra
+	fishBrokenSell = true,
+	-- predictions
+	predictEnable = true,
+	-- other / movement / esp
+	fly = false, flySpeed = 60, walkSpeed = 16, jumpPower = 50,
+	noclip = false, infJump = false, antiAfk = true,
+	espPlayers = false, espContainers = false, espNpc = false,
 }
 
 local function deepCopy(t)
@@ -182,7 +210,8 @@ end
 
 -- авто-действия, которые НЕ должны включаться сами при загрузке (иначе тепает/фармит сразу)
 local AUTO_KEYS = {"autoBid","autoFish","autoSell","autoWash","autoGrade","autoRepair",
-	"autoBuyDrink","autoStock","autoTrade","autoCollectAll","autoBuyItems","returnWhenFull"}
+	"autoBuyDrink","autoStock","autoTrade","autoCollectAll","autoBuyItems","returnWhenFull",
+	"autoQuest","fly","noclip","infJump","espPlayers","espContainers","espNpc"}
 
 local function resetAutoFlags()
 	for _, k in ipairs(AUTO_KEYS) do Config[k] = false end
@@ -507,6 +536,8 @@ local ICON = {
 	tp      = "rbxassetid://120644819082905",  -- Area (game)
 	shop    = "rbxassetid://15133445964",       -- Energy (game)
 	settings= "rbxassetid://10734950309",
+	quest   = "rbxassetid://10723345447",
+	other   = "rbxassetid://10734948008",
 	close   = "rbxassetid://7733658504",
 	logo    = "rbxassetid://116204155184116",
 }
@@ -815,15 +846,16 @@ local function switchLang(lang)
 	end)
 end
 
+-- меню языка поверх ВСЕГО (parent Main, максимальный ZIndex)
 local langMenu = Instance.new("Frame")
 langMenu.Size = UDim2.fromOffset(70, 0)
 langMenu.AutomaticSize = Enum.AutomaticSize.Y
-langMenu.Position = UDim2.new(1, -78, 0, 44)
+langMenu.Position = UDim2.new(1, -78, 0, 52)
 langMenu.AnchorPoint = Vector2.new(0, 0)
 langMenu.BackgroundColor3 = Theme.SurfaceHl
 langMenu.Visible = false
-langMenu.ZIndex = 700
-langMenu.Parent = topBar
+langMenu.ZIndex = 5000
+langMenu.Parent = Main
 corner(langMenu, 8); stroke(langMenu, Theme.Stroke, 1, 0)
 local lmp = Instance.new("UIPadding"); lmp.PaddingTop=UDim.new(0,4);lmp.PaddingBottom=UDim.new(0,4);lmp.PaddingLeft=UDim.new(0,4);lmp.PaddingRight=UDim.new(0,4); lmp.Parent=langMenu
 local lml = Instance.new("UIListLayout"); lml.Padding=UDim.new(0,2); lml.Parent=langMenu
@@ -831,7 +863,7 @@ for _, lang in ipairs({"ru","en"}) do
 	local o = Instance.new("TextButton")
 	o.Size = UDim2.new(1,0,0,26); o.BackgroundColor3 = Theme.SurfaceHl; o.AutoButtonColor=false
 	o.Font = Enum.Font.GothamBold; o.TextSize=12; o.TextColor3=Theme.Text; o.Text=lang:upper()
-	o.ZIndex = 701; o.Parent = langMenu; corner(o,5)
+	o.ZIndex = 5001; o.Parent = langMenu; corner(o,5)
 	o.MouseEnter:Connect(function() tween(o,0.1,{BackgroundColor3=Theme.Accent}) end)
 	o.MouseLeave:Connect(function() tween(o,0.1,{BackgroundColor3=Theme.SurfaceHl}) end)
 	o.MouseButton1Click:Connect(function() langMenu.Visible=false; switchLang(lang) end)
@@ -848,7 +880,7 @@ tooltip.AutomaticSize = Enum.AutomaticSize.Y
 tooltip.BackgroundColor3 = Color3.fromRGB(18, 19, 26)
 tooltip.BackgroundTransparency = 1
 tooltip.Visible = false
-tooltip.ZIndex = 600
+tooltip.ZIndex = 5000
 tooltip.Parent = Main
 corner(tooltip, 8)
 local ttStroke = stroke(tooltip, Theme.Accent, 1, 1)
@@ -864,7 +896,7 @@ ttText.TextColor3 = Theme.Text
 ttText.TextWrapped = true
 ttText.TextXAlignment = Enum.TextXAlignment.Left
 ttText.TextTransparency = 1
-ttText.ZIndex = 601
+ttText.ZIndex = 5001
 ttText.Parent = tooltip
 
 local function attachTip(obj, getText)
@@ -1403,8 +1435,10 @@ local homePage     = addTab("home", "home")
 local farmPage     = addTab("farm", "farm")
 local sellPage     = addTab("sell", "sell")
 local processPage  = addTab("process", "process")
+local questPage    = addTab("quest", "quest")
 local tpPage       = addTab("tp", "tp")
 local shopPage     = addTab("shop", "shop")
+local otherPage    = addTab("other", "other")
 local settingsPage = addTab("settings", "settings")
 
 -- =========== HOME ===========
@@ -1450,8 +1484,11 @@ Comp.module(farmSec, T("auto_bid"), "autoBid", function(p)
 	Comp.slider(p, T("bid_speed"), "bidSpeed", 0.1, 1.5, 0.05, "s")
 	Comp.toggle(p, T("auto_buyitems"), "autoBuyItems")
 	Comp.slider(p, T("profit_min"), "profitMin", 0, 100, 5, "%")
+	Comp.toggle(p, T("keep_safes"), "keepSafes")
 end)
-Comp.module(farmSec, T("auto_fish"), "autoFish", nil)
+Comp.module(farmSec, T("auto_fish"), "autoFish", function(p)
+	Comp.toggle(p, T("fish_broken_sell"), "fishBrokenSell")
+end)
 Comp.module(farmSec, T("auto_collect"), "autoCollectAll", nil)
 
 -- =========== SELL ===========
@@ -1460,6 +1497,8 @@ Comp.module(sellSec, T("auto_sell"), "autoSell", function(p)
 	Comp.toggle(p, T("sell_with_car"), "sellWithCar")
 	Comp.toggle(p, T("keep_fav"), "keepFav")
 	Comp.toggle(p, T("keep_trophy"), "keepTrophy")
+	Comp.toggle(p, T("keep_safes"), "keepSafes")
+	Comp.toggle(p, T("keep_rods"), "keepRods")
 	Comp.slider(p, T("sell_min"), "sellMin", 0, 50000, 25, "$")
 end)
 Comp.module(sellSec, T("auto_stock"), "autoStock", function(p)
@@ -1517,6 +1556,44 @@ task.spawn(function()
 		task.wait(1)
 	end
 end)
+
+-- =========== QUEST ===========
+local questNpcNames = {"Все"}
+do
+	local seen = {["Все"]=true}
+	local function addNpc(n) if n and not seen[n] then seen[n]=true; table.insert(questNpcNames, n) end end
+	local qfolder = Workspace:FindFirstChild("Mall - Shop NPCs")
+	qfolder = qfolder and qfolder:FindFirstChild("Quest NPC")
+	if qfolder then for _, n in ipairs(qfolder:GetChildren()) do addNpc(n.Name) end end
+	for _, npc in ipairs({"Billy","Sal","Ted","Steve"}) do addNpc(npc) end
+end
+if Locale == "en" then questNpcNames[1] = "All" end
+if not Config.questNpc or Config.questNpc == "" then Config.questNpc = questNpcNames[1] end
+
+local questSec = Comp.section(questPage, nil)
+Comp.module(questSec, T("auto_quest"), "autoQuest", function(p)
+	Comp.dropdown(p, T("quest_npc"), "questNpc", questNpcNames)
+	Comp.toggle(p, T("quest_take_new"), "questTakeNew")
+end)
+
+-- =========== OTHER ===========
+local moveSec = Comp.section(otherPage, T("tab_other"))
+Comp.module(moveSec, T("fly"), "fly", function(p)
+	Comp.slider(p, T("fly_speed"), "flySpeed", 16, 250, 2)
+end, function(v) _G.__VH_setFly(v) end)
+Comp.slider(moveSec, T("walkspeed"), "walkSpeed", 16, 200, 2, "", function(v) _G.__VH_setWalk(v) end)
+Comp.slider(moveSec, T("jumppower"), "jumpPower", 50, 350, 5, "", function(v) _G.__VH_setJump(v) end)
+Comp.toggle(moveSec, T("noclip"), "noclip", function(v) _G.__VH_setNoclip(v) end)
+Comp.toggle(moveSec, T("inf_jump"), "infJump")
+Comp.toggle(moveSec, T("anti_afk"), "antiAfk")
+
+local espSec = Comp.section(otherPage, "ESP")
+Comp.toggle(espSec, T("esp_players"), "espPlayers")
+Comp.toggle(espSec, T("esp_containers"), "espContainers")
+Comp.toggle(espSec, T("esp_npc"), "espNpc")
+
+local miscSec = Comp.section(otherPage, T("predictions"))
+Comp.toggle(miscSec, T("predict_enable"), "predictEnable")
 
 -- =========== TELEPORTS ===========
 local tpAreas   = Comp.section(tpPage, T("tp_areas"))
@@ -1587,9 +1664,14 @@ function _G.__VH_sellNow()
 	local list = {}
 	for guid, e in pairs(items) do
 		local price = API.itemPrice(e)
+		local def = Items and Items[tostring(e.ItemId)]
+		local isSafe = (def and (def.SafeId ~= nil or (def.Category=="Safe") or ((def.Name or ""):lower():find("safe")))) or false
+		local isRod = (def and ((def.Category=="Tool") or ((def.Name or ""):lower():find("rod")))) or false
 		local skip = false
 		if Config.keepFav and e.Favorited then skip = true end
 		if Config.keepTrophy and e.IsTrophy then skip = true end
+		if Config.keepSafes and isSafe then skip = true end
+		if Config.keepRods and isRod then skip = true end
 		if price < (Config.sellMin or 0) then skip = true end
 		if not skip then table.insert(list, {guid=guid, price=price}) end
 	end
@@ -1836,19 +1918,229 @@ task.spawn(function()
 	end
 end)
 
--- авто-рыбалка
+-- ========== АВТО-РЫБАЛКА (reel: держим маркер в зоне рыбы) ==========
+local function mousePress()
+	if mouse1press then pcall(mouse1press)
+	else pcall(function() VirtualInputManager:SendMouseButtonEvent(0,0,0,true,game,0) end) end
+end
+local function mouseRelease()
+	if mouse1release then pcall(mouse1release)
+	else pcall(function() VirtualInputManager:SendMouseButtonEvent(0,0,0,false,game,0) end) end
+end
+
+local function equipRod()
+	local char = LocalPlayer.Character
+	local bp = LocalPlayer:FindFirstChild("Backpack")
+	local function isRod(t) return t:IsA("Tool") and (t.Name:lower():find("rod") or t.Name:lower():find("fish")) end
+	if char then for _, t in ipairs(char:GetChildren()) do if isRod(t) then return true end end end
+	if bp then for _, t in ipairs(bp:GetChildren()) do if isRod(t) then
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		if hum then hum:EquipTool(t); return true end
+	end end end
+	return false
+end
+
+-- авто-reel через Heartbeat (читаем маркер и рыбу из GUI)
+do
+	local holding = false
+	local function findReel()
+		local cb, fish
+		for _, g in ipairs(PlayerGui:GetChildren()) do
+			if g:IsA("ScreenGui") and (g.Name:lower():find("fish") or g.Name:lower():find("reel")) then
+				cb = g:FindFirstChild("CatchBar", true) or g:FindFirstChild("Player", true)
+				fish = g:FindFirstChild("Fish", true) or g:FindFirstChild("Zone", true)
+				if cb and fish then return cb, fish end
+			end
+		end
+		return nil
+	end
+	RunService.Heartbeat:Connect(function()
+		if not Config.autoFish then if holding then mouseRelease(); holding=false end return end
+		local cb, fish = findReel()
+		if not (cb and fish) then if holding then mouseRelease(); holding=false end return end
+		if cb.Position.X.Scale < fish.Position.X.Scale - 0.01 then
+			if not holding then mousePress(); holding=true end
+		else
+			if holding then mouseRelease(); holding=false end
+		end
+	end)
+end
+
 task.spawn(function()
-	local Misc = ev("Misc.FishingCast") and Events:FindFirstChild("Misc")
 	while ScreenGui.Parent do
 		if Config.autoFish then
-			-- телепорт к озеру
-			for _, poi in ipairs(API.getPOIs()) do
-				if poi.name == "Lake" then teleport(poi.position); break end
+			-- сломанные удочки -> выставить в магазин (не чинятся)
+			if Config.fishBrokenSell then
+				local inv = API.getSellable()
+				local broken = {}
+				for guid, e in pairs(inv) do
+					local def = Items and Items[tostring(e.ItemId)]
+					if def and (def.Category=="Tool" or (def.Name or ""):lower():find("rod")) and (e.Condition or 100) <= 1 then
+						table.insert(broken, guid)
+					end
+				end
+				if #broken > 0 then API.sell(broken) end
 			end
-			-- заброс + авто-реал
-			local cast = ev("Misc.FishingCast")
-			if cast then
-				pcall(function() cast:FireServer() end)
+			if not equipRod() then task.wait(2)
+			else
+				for _, poi in ipairs(API.getPOIs()) do
+					if poi.name == "Lake" then teleport(poi.position); break end
+				end
+				local cast = ev("Misc.FishingCast")
+				if cast then pcall(function() cast:FireServer() end) end
+				task.wait(4)
+			end
+		else
+			task.wait(1)
+		end
+	end
+end)
+
+-- ========== ДВИЖЕНИЕ: Fly / WalkSpeed / Jump / NoClip / InfJump ==========
+local flyConn, flyBV, flyBG
+function _G.__VH_setFly(on)
+	local char = LocalPlayer.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if flyConn then flyConn:Disconnect(); flyConn=nil end
+	if flyBV then flyBV:Destroy(); flyBV=nil end
+	if flyBG then flyBG:Destroy(); flyBG=nil end
+	if not (on and hrp and hum) then return end
+	flyBV = Instance.new("BodyVelocity"); flyBV.MaxForce = Vector3.new(1,1,1)*9e9; flyBV.Velocity = Vector3.zero; flyBV.Parent = hrp
+	flyBG = Instance.new("BodyGyro"); flyBG.MaxForce = Vector3.new(1,1,1)*9e9; flyBG.P = 9e4; flyBG.Parent = hrp
+	flyConn = RunService.RenderStepped:Connect(function()
+		if not Config.fly then return end
+		local cam = Workspace.CurrentCamera
+		local dir = Vector3.zero
+		local sp = Config.flySpeed or 60
+		if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir = dir + cam.CFrame.LookVector end
+		if UserInputService:IsKeyDown(Enum.KeyCode.S) then dir = dir - cam.CFrame.LookVector end
+		if UserInputService:IsKeyDown(Enum.KeyCode.A) then dir = dir - cam.CFrame.RightVector end
+		if UserInputService:IsKeyDown(Enum.KeyCode.D) then dir = dir + cam.CFrame.RightVector end
+		if UserInputService:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.new(0,1,0) end
+		if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then dir = dir - Vector3.new(0,1,0) end
+		flyBV.Velocity = (dir.Magnitude > 0 and dir.Unit * sp or Vector3.zero)
+		flyBG.CFrame = cam.CFrame
+	end)
+end
+function _G.__VH_setWalk(v)
+	local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+	if hum then hum.WalkSpeed = v end
+end
+function _G.__VH_setJump(v)
+	local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+	if hum then hum.JumpPower = v; hum.UseJumpPower = true end
+end
+function _G.__VH_setNoclip() end -- noclip обрабатывается циклом ниже
+
+RunService.Stepped:Connect(function()
+	if Config.noclip then
+		local char = LocalPlayer.Character
+		if char then for _, p in ipairs(char:GetDescendants()) do
+			if p:IsA("BasePart") and p.CanCollide then p.CanCollide = false end
+		end end
+	end
+end)
+UserInputService.JumpRequest:Connect(function()
+	if Config.infJump then
+		local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+		if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+	end
+end)
+-- применять скорость/прыжок при респавне
+LocalPlayer.CharacterAdded:Connect(function()
+	task.wait(1)
+	_G.__VH_setWalk(Config.walkSpeed); _G.__VH_setJump(Config.jumpPower)
+	if Config.fly then _G.__VH_setFly(true) end
+end)
+
+-- ========== ANTI-AFK ==========
+do
+	local vu = game:GetService("VirtualUser")
+	LocalPlayer.Idled:Connect(function()
+		if Config.antiAfk then
+			pcall(function()
+				vu:CaptureController()
+				vu:ClickButton2(Vector2.new())
+			end)
+		end
+	end)
+end
+
+-- ========== ESP ==========
+local espCache = {}
+local function makeEsp(inst, color, label)
+	if not inst or espCache[inst] then return end
+	local part = inst:IsA("Model") and (inst.PrimaryPart or inst:FindFirstChildWhichIsA("BasePart")) or (inst:IsA("BasePart") and inst)
+	if not part then return end
+	local hl = Instance.new("Highlight")
+	hl.FillColor = color; hl.OutlineColor = Color3.new(1,1,1); hl.FillTransparency = 0.6; hl.OutlineTransparency = 0
+	hl.Adornee = inst; hl.Parent = inst
+	espCache[inst] = hl
+end
+local function clearEsp(pred)
+	for inst, hl in pairs(espCache) do
+		if pred(inst) then hl:Destroy(); espCache[inst] = nil end
+	end
+end
+task.spawn(function()
+	while ScreenGui.Parent do
+		-- игроки
+		if Config.espPlayers then
+			for _, pl in ipairs(Players:GetPlayers()) do
+				if pl ~= LocalPlayer and pl.Character then makeEsp(pl.Character, Color3.fromRGB(90,160,255)) end
+			end
+		else clearEsp(function(i) return i:IsA("Model") and Players:GetPlayerFromCharacter(i) end) end
+		-- контейнеры (гаражи)
+		if Config.espContainers then
+			local gf = Workspace:FindFirstChild("_Debris"); gf = gf and gf:FindFirstChild("Garages")
+			if gf then for _, g in ipairs(gf:GetChildren()) do makeEsp(g, Color3.fromRGB(120,255,140)) end end
+		else clearEsp(function(i) return i.Parent and i.Parent.Name=="Garages" end) end
+		-- NPC
+		if Config.espNpc then
+			local nf = Workspace:FindFirstChild("Mall - Shop NPCs")
+			if nf then for _, n in ipairs(nf:GetDescendants()) do if n:IsA("Model") and n:FindFirstChildOfClass("Humanoid") then makeEsp(n, Color3.fromRGB(255,200,80)) end end end
+		else clearEsp(function(i) return i:IsA("Model") and i:FindFirstChildOfClass("Humanoid") and not Players:GetPlayerFromCharacter(i) and i.Parent and i.Parent.Name=="Mall - Shop NPCs" end) end
+		task.wait(2)
+	end
+end)
+
+-- ========== AUTO-QUEST ==========
+task.spawn(function()
+	local questEv = Events:FindFirstChild("Quest")
+	while ScreenGui.Parent do
+		if Config.autoQuest then
+			-- ищем NPC с восклицательным знаком (доступен квест) и общаемся
+			local target = Config.questNpc
+			local function npcMatches(name) return (target=="Все" or target=="All") or name==target end
+			local function tryNpc(npcModel)
+				if not npcModel then return end
+				local hrp = getHRP()
+				local pp = npcModel:FindFirstChild("HumanoidRootPart") or npcModel.PrimaryPart
+				if hrp and pp then
+					hrp.CFrame = CFrame.new(pp.Position + Vector3.new(2,0,0))
+					task.wait(0.4)
+					for _, d in ipairs(npcModel:GetDescendants()) do
+						if d:IsA("ProximityPrompt") then pcall(function() fireproximityprompt(d) end); break end
+					end
+					task.wait(0.6)
+					-- подтвердить диалог квеста (принять/сдать)
+					local sq = ev("UI.SendQuestDialogResult")
+					if sq then pcall(function() sq:FireServer(true) end) end
+				end
+			end
+			-- собрать NPC
+			local nf = Workspace:FindFirstChild("Mall - Shop NPCs")
+			local qf = nf and nf:FindFirstChild("Quest NPC")
+			if qf then for _, n in ipairs(qf:GetChildren()) do
+				if Config.autoQuest and npcMatches(n.Name) then tryNpc(n) end
+			end end
+			for _, area in ipairs({"Junk Yard","Back Alley","Farmyard","Shipyard"}) do
+				local a = Workspace.Areas and Workspace.Areas:FindFirstChild(area)
+				if a then for _, npc in ipairs({"Billy","Sal","Ted","Steve"}) do
+					local n = a:FindFirstChild(npc)
+					if n and Config.autoQuest and npcMatches(npc) then tryNpc(n) end
+				end end
 			end
 			task.wait(3)
 		else
@@ -1984,25 +2276,31 @@ do
 
 	task.spawn(function()
 		while ScreenGui.Parent do
-			ptitle.Text = "⏳ "..T("predictions")
-			for _, name in ipairs(eventNames) do
-				local row = rows[name]
-				local startTs
-				pcall(function() if SEM then startTs = SEM:GetNextEventStart(name) end end)
-				if row then
-					if startTs and tonumber(startTs) then
-						local left = math.floor(tonumber(startTs) - os.time())
-						if left <= 0 then
-							row.Text = "🟢 "..name..": "..T("ev_active")
-							row.TextColor3 = Theme.Success
+			pred.Visible = (Config.predictEnable ~= false)
+			if pred.Visible then
+				local anyShown = false
+				ptitle.Text = "⏳ "..T("predictions")
+				for _, name in ipairs(eventNames) do
+					local row = rows[name]
+					local startTs
+					pcall(function() if SEM then startTs = SEM:GetNextEventStart(name) end end)
+					if row then
+						local n = startTs and tonumber(startTs)
+						if n and (n - os.time()) > -5 and (n - os.time()) < 86400 then
+							-- показываем только то, что реально предсказуемо
+							local left = math.floor(n - os.time())
+							row.Visible = true; anyShown = true
+							if left <= 0 then
+								row.Text = "🟢 "..name..": "..T("ev_active"); row.TextColor3 = Theme.Success
+							else
+								row.Text = string.format("%s: %d:%02d", name, math.floor(left/60), left%60); row.TextColor3 = Theme.SubText
+							end
 						else
-							row.Text = string.format("%s: %d:%02d", name, math.floor(left/60), left%60)
-							row.TextColor3 = Theme.SubText
+							row.Visible = false  -- непредсказуемый эвент скрываем
 						end
-					else
-						row.Text = name..": "..T("none")
 					end
 				end
+				if not anyShown then ptitle.Text = "⏳ "..T("predictions").." —" end
 			end
 			task.wait(1)
 		end
