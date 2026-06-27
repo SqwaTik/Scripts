@@ -1603,6 +1603,30 @@ do
 	end) end
 end
 
+-- АВТО-ПОПАДАНИЕ по бид-бару: читаем реальные позиции курсора и зоны,
+-- бид строго когда курсор внутри зоны (любой редкости/скорости) -> промахов нет -> нет кд
+local lastHit = 0
+RunService.Heartbeat:Connect(function()
+	if not Config.autoBid then return end
+	local ui = PlayerGui:FindFirstChild("UIControllerGui")
+	local cont = ui and ui:FindFirstChild("AuctionBiddingContainer")
+	if not (cont and cont.Visible) then return end
+	if Config.maxBid > 0 and currentBid >= Config.maxBid then return end
+	local row = cont:FindFirstChild("BidBarRow")
+	local zone = row and row:FindFirstChild("BidZone")
+	local cur = row and row:FindFirstChild("Cursor")
+	if not (zone and cur) then return end
+	local zs = zone.Position.X.Scale - zone.AnchorPoint.X * zone.Size.X.Scale
+	local ze = zs + zone.Size.X.Scale
+	local cx = cur.Position.X.Scale
+	-- небольшой внутренний отступ -> бьём ближе к центру (perfect), не по краю
+	local pad = (ze - zs) * 0.12
+	if cx >= (zs + pad) and cx <= (ze - pad) and (os.clock() - lastHit) > 0.1 then
+		lastHit = os.clock()
+		API.bid()
+	end
+end)
+
 -- КОНТЕЙНЕРЫ = гаражи в Workspace._Debris.Garages (промпт "Start Auction")
 -- центры зон для фильтра по выбранной локации
 local AREA_CENTER = {}
@@ -1633,7 +1657,7 @@ local function getGarages()
 	return out
 end
 
--- один цикл аукциона на конкретном гараже
+-- один цикл аукциона на конкретном гараже (стоим на месте пока идёт торг!)
 local function doGarageAuction(g)
 	local hrp = getHRP()
 	if not hrp or not g.part then return end
@@ -1646,21 +1670,21 @@ local function doGarageAuction(g)
 	local t0 = os.clock()
 	repeat task.wait(0.1) until biddingActive or (os.clock()-t0) > 4 or not Config.autoBid
 	if not biddingActive then return end
-	task.wait(0.25)
-	-- скип дешёвого лота
+	task.wait(0.35)
+	-- скип дешёвого лота по начальной ставке
 	if Config.minBid > 0 and currentBid > 0 and currentBid < Config.minBid then
-		API.leaveAuction(); return
+		API.leaveAuction(); task.wait(0.3); return
 	end
-	-- спам Bid до победы/выхода/потолка
+	-- СТОИМ на гараже и ждём конца торгов; авто-хит (Heartbeat) сам бидит в зоне
 	local bt = os.clock()
-	while biddingActive and Config.autoBid and (os.clock()-bt) < 20 do
-		if Config.maxBid > 0 and currentBid >= Config.maxBid then
-			API.leaveAuction(); break
+	repeat
+		-- держим персонажа на месте, чтобы не выпасть из зоны (скилл-чек не пропал)
+		if hrp and (hrp.Position - (g.part.Position + Vector3.new(0,3,0))).Magnitude > 6 then
+			hrp.CFrame = CFrame.new(g.part.Position + Vector3.new(0, 3, 0))
 		end
-		API.bid()
-		task.wait(Config.bidSpeed or 0.2)
-	end
-	task.wait(0.4) -- дать забрать предметы (auto-pickup на событии)
+		task.wait(0.2)
+	until (not biddingActive) or (not Config.autoBid) or (os.clock()-bt) > 30
+	task.wait(0.6) -- дать забрать предметы (auto-pickup на событии)
 end
 
 task.spawn(function()
