@@ -1045,18 +1045,23 @@ function Comp.dropdown(parent, text, key, options, callback)
 	box.Parent = r
 	corner(box, 6); stroke(box, Theme.Stroke, 1, 0.3)
 
+	-- меню рендерим в ОВЕРЛЕЕ поверх всего GUI (иначе слоится под слайдерами)
 	local open = false
 	local menu = Instance.new("Frame")
-	menu.Size = UDim2.new(0.5, -4, 0, 0)
-	menu.Position = UDim2.new(0.5, 4, 0.5, 18)
+	menu.Name = "DropdownOverlay"
+	menu.Size = UDim2.fromOffset(10, 0)
 	menu.BackgroundColor3 = Theme.SurfaceHl
 	menu.BorderSizePixel = 0
 	menu.Visible = false
-	menu.ZIndex = 20
+	menu.ZIndex = 500
 	menu.ClipsDescendants = true
-	menu.Parent = r
+	menu.Parent = ScreenGui
 	corner(menu, 6); stroke(menu, Theme.Stroke, 1, 0)
 	local ml = Instance.new("UIListLayout"); ml.Parent = menu
+
+	local function setZ(obj, z)
+		for _,d in ipairs(obj:GetDescendants()) do if d:IsA("GuiObject") then d.ZIndex = z end end
+	end
 
 	local function choose(v)
 		Config[key] = v; box.Text = tostring(v)
@@ -1072,18 +1077,28 @@ function Comp.dropdown(parent, text, key, options, callback)
 		o.TextSize = 12
 		o.TextColor3 = Theme.Text
 		o.Text = tostring(opt)
-		o.ZIndex = 21
+		o.ZIndex = 501
 		o.Parent = menu
 		o.MouseEnter:Connect(function() tween(o,0.1,{BackgroundColor3=Theme.Accent}) end)
 		o.MouseLeave:Connect(function() tween(o,0.1,{BackgroundColor3=Theme.SurfaceHl}) end)
-		o.MouseButton1Click:Connect(function() choose(opt); open=false; menu.Visible=false; tween(menu,0.15,{Size=UDim2.new(0.5,-4,0,0)}) end)
+		o.MouseButton1Click:Connect(function()
+			choose(opt); open=false
+			tween(menu,0.12,{Size=UDim2.fromOffset(box.AbsoluteSize.X,0)})
+			task.delay(0.12, function() if not open then menu.Visible=false end end)
+		end)
 	end
 	box.MouseButton1Click:Connect(function()
 		open = not open
-		menu.Visible = true
-		menu.ZIndex = 50
-		tween(menu, 0.18, {Size = UDim2.new(0.5, -4, 0, open and (#options*26) or 0)})
-		if not open then task.delay(0.18, function() menu.Visible=false end) end
+		if open then
+			local p = box.AbsolutePosition
+			menu.Position = UDim2.fromOffset(p.X, p.Y + box.AbsoluteSize.Y + 2)
+			menu.Size = UDim2.fromOffset(box.AbsoluteSize.X, 0)
+			menu.Visible = true
+			tween(menu, 0.18, {Size = UDim2.fromOffset(box.AbsoluteSize.X, #options*26)})
+		else
+			tween(menu, 0.15, {Size = UDim2.fromOffset(box.AbsoluteSize.X, 0)})
+			task.delay(0.15, function() if not open then menu.Visible=false end end)
+		end
 	end)
 	return { set = function(v) choose(v) end }
 end
@@ -1436,7 +1451,37 @@ do
 	end) end
 end
 
+-- NPC-аукционист в каждой зоне
+local AUCTION_NPC = {["Junk Yard"]="Billy", ["Back Alley"]="Sal", ["Farmyard"]="Ted", ["Shipyard"]="Steve"}
+
+local function getAuctioneer()
+	local areaName = Config.bidArea
+	local areas = Workspace:FindFirstChild("Areas")
+	if not areas then return nil end
+	local a = areas:FindFirstChild(areaName)
+	if not a then return nil end
+	return a:FindFirstChild(AUCTION_NPC[areaName] or "")
+end
+
+-- тепаем именно К КОНТЕЙНЕРУ/аукционисту, а не в центр зоны, и стартуем аукцион промптом
 local function tpToBidArea()
+	local npc = getAuctioneer()
+	if npc then
+		local pp = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart or npc:FindFirstChildWhichIsA("BasePart")
+		if pp then
+			local hrp = getHRP()
+			if hrp then hrp.CFrame = CFrame.new(pp.Position + Vector3.new(3, 0, 0)) end
+			-- запускаем аукцион ближайшим ProximityPrompt "Talk"
+			for _, d in ipairs(npc:GetDescendants()) do
+				if d:IsA("ProximityPrompt") then
+					pcall(function() fireproximityprompt(d) end)
+					break
+				end
+			end
+			return true
+		end
+	end
+	-- запасной вариант: центр зоны
 	for _, poi in ipairs(API.getPOIs()) do
 		if poi.category == "Area" and poi.name == Config.bidArea then
 			teleport(poi.position); return true
