@@ -788,40 +788,62 @@ do
 	corner(l2, 1)
 end
 
--- кнопка смены языка (рядом с крестиком)
+-- кнопка смены языка — только значок глобуса, клик выдвигает выбор
 local langBtn = Instance.new("TextButton")
-langBtn.Size = UDim2.fromOffset(34, 30)
-langBtn.Position = UDim2.new(1, -82, 0.5, 0)
+langBtn.Size = UDim2.fromOffset(30, 30)
+langBtn.Position = UDim2.new(1, -78, 0.5, 0)
 langBtn.AnchorPoint = Vector2.new(0, 0.5)
 langBtn.BackgroundColor3 = Theme.Surface
 langBtn.AutoButtonColor = false
-langBtn.Text = "🌐 "..tostring(Locale):upper()
+langBtn.Text = "🌐"
 langBtn.Font = Enum.Font.GothamBold
-langBtn.TextSize = 11
+langBtn.TextSize = 15
 langBtn.TextColor3 = Theme.Accent2
 langBtn.Parent = topBar
 corner(langBtn, 8)
 langBtn.MouseEnter:Connect(function() tween(langBtn,0.15,{BackgroundColor3=Theme.SurfaceHl}) end)
 langBtn.MouseLeave:Connect(function() tween(langBtn,0.15,{BackgroundColor3=Theme.Surface}) end)
-langBtn.MouseButton1Click:Connect(function()
-	Config.language = (Locale == "ru") and "en" or "ru"
-	Locale = Config.language
-	saveConfig()
-	-- мгновенный перезапуск интерфейса с новым языком
+
+local function switchLang(lang)
+	if lang == Locale then return end
+	Config.language = lang; Locale = lang; saveConfig()
 	shared.__VAULTHUB_LOADED = nil
 	ScreenGui:Destroy()
 	task.spawn(function()
 		local ok, body = pcall(function() return game:HttpGet(VH_SCRIPT_URL) end)
 		if ok and body then local f = loadstring(body); if f then f() end end
 	end)
-end)
+end
+
+local langMenu = Instance.new("Frame")
+langMenu.Size = UDim2.fromOffset(70, 0)
+langMenu.AutomaticSize = Enum.AutomaticSize.Y
+langMenu.Position = UDim2.new(1, -78, 0, 44)
+langMenu.AnchorPoint = Vector2.new(0, 0)
+langMenu.BackgroundColor3 = Theme.SurfaceHl
+langMenu.Visible = false
+langMenu.ZIndex = 700
+langMenu.Parent = topBar
+corner(langMenu, 8); stroke(langMenu, Theme.Stroke, 1, 0)
+local lmp = Instance.new("UIPadding"); lmp.PaddingTop=UDim.new(0,4);lmp.PaddingBottom=UDim.new(0,4);lmp.PaddingLeft=UDim.new(0,4);lmp.PaddingRight=UDim.new(0,4); lmp.Parent=langMenu
+local lml = Instance.new("UIListLayout"); lml.Padding=UDim.new(0,2); lml.Parent=langMenu
+for _, lang in ipairs({"ru","en"}) do
+	local o = Instance.new("TextButton")
+	o.Size = UDim2.new(1,0,0,26); o.BackgroundColor3 = Theme.SurfaceHl; o.AutoButtonColor=false
+	o.Font = Enum.Font.GothamBold; o.TextSize=12; o.TextColor3=Theme.Text; o.Text=lang:upper()
+	o.ZIndex = 701; o.Parent = langMenu; corner(o,5)
+	o.MouseEnter:Connect(function() tween(o,0.1,{BackgroundColor3=Theme.Accent}) end)
+	o.MouseLeave:Connect(function() tween(o,0.1,{BackgroundColor3=Theme.SurfaceHl}) end)
+	o.MouseButton1Click:Connect(function() langMenu.Visible=false; switchLang(lang) end)
+end
+langBtn.MouseButton1Click:Connect(function() langMenu.Visible = not langMenu.Visible end)
 
 -- ГЛОБАЛЬНЫЙ ТУЛТИП (вверху по центру окна)
 local tooltip = Instance.new("Frame")
 tooltip.Name = "Tooltip"
-tooltip.AnchorPoint = Vector2.new(0.5, 0)
-tooltip.Position = UDim2.new(0.5, 85, 0, 8)
-tooltip.Size = UDim2.fromOffset(400, 0)
+tooltip.AnchorPoint = Vector2.new(0.5, 1)
+tooltip.Position = UDim2.new(0.5, 0, 0, -8)
+tooltip.Size = UDim2.fromOffset(440, 0)
 tooltip.AutomaticSize = Enum.AutomaticSize.Y
 tooltip.BackgroundColor3 = Color3.fromRGB(18, 19, 26)
 tooltip.BackgroundTransparency = 1
@@ -1056,6 +1078,9 @@ function Comp.toggle(parent, text, key, callback)
 	end
 	sw.MouseButton1Click:Connect(function() set(not Config[key], true); saveConfig() end)
 	set(Config[key], false)
+	-- анимация наведения
+	sw.MouseEnter:Connect(function() tween(knob, 0.12, {Size = UDim2.fromOffset(20,20)}) end)
+	sw.MouseLeave:Connect(function() tween(knob, 0.12, {Size = UDim2.fromOffset(18,18)}) end)
 	return { set = set, label = lbl }
 end
 
@@ -1120,6 +1145,9 @@ function Comp.slider(parent, text, key, min, max, step, suffix, callback)
 	UserInputService.InputEnded:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 then if dragging then dragging=false; saveConfig() end end end)
 	UserInputService.InputChanged:Connect(function(i) if dragging and i.UserInputType==Enum.UserInputType.MouseMovement then upd(i) end end)
 	set(Config[key] or min, false)
+	-- анимация наведения
+	track.MouseEnter:Connect(function() tween(track,0.12,{Size=UDim2.new(1,0,0,9)}); tween(valBox,0.12,{TextColor3=Theme.Accent}) end)
+	track.MouseLeave:Connect(function() tween(track,0.12,{Size=UDim2.new(1,0,0,6)}); tween(valBox,0.12,{TextColor3=Theme.Accent2}) end)
 	return { set = set, label = lbl }
 end
 
@@ -1145,7 +1173,20 @@ function Comp.button(parent, text, color, callback)
 end
 
 function Comp.dropdown(parent, text, key, options, callback)
-	local r = rowBase(parent, 34)
+	-- раздвижной вниз (в потоке), раздвигает список — не улетает и не закрывает другое
+	local wrap = Instance.new("Frame")
+	wrap.Size = UDim2.new(1, 0, 0, 34)
+	wrap.BackgroundTransparency = 1
+	wrap.AutomaticSize = Enum.AutomaticSize.Y
+	wrap.Parent = parent
+	local wl = Instance.new("UIListLayout"); wl.SortOrder = Enum.SortOrder.LayoutOrder; wl.Parent = wrap
+
+	local r = Instance.new("Frame")
+	r.Size = UDim2.new(1, 0, 0, 34)
+	r.BackgroundTransparency = 1
+	r.LayoutOrder = 0
+	r.Parent = wrap
+
 	local lbl = Instance.new("TextLabel")
 	lbl.Size = UDim2.new(0.5, 0, 1, 0)
 	lbl.BackgroundTransparency = 1
@@ -1168,61 +1209,49 @@ function Comp.dropdown(parent, text, key, options, callback)
 	box.Text = tostring(Config[key])
 	box.Parent = r
 	corner(box, 6); stroke(box, Theme.Stroke, 1, 0.3)
+	local arr = Instance.new("TextLabel")
+	arr.Size = UDim2.fromOffset(16,28); arr.Position = UDim2.new(1,-18,0.5,0); arr.AnchorPoint=Vector2.new(0,0.5)
+	arr.BackgroundTransparency=1; arr.Text="▾"; arr.Font=Enum.Font.GothamBold; arr.TextSize=11; arr.TextColor3=Theme.SubText; arr.Parent=box
 
-	-- меню рендерим в ОВЕРЛЕЕ поверх всего GUI (иначе слоится под слайдерами)
-	local open = false
 	local menu = Instance.new("Frame")
-	menu.Name = "DropdownOverlay"
-	menu.Size = UDim2.fromOffset(10, 0)
-	menu.BackgroundColor3 = Theme.SurfaceHl
-	menu.BorderSizePixel = 0
+	menu.Name = "Menu"
+	menu.Size = UDim2.new(1, 0, 0, 0)
+	menu.AutomaticSize = Enum.AutomaticSize.Y
+	menu.BackgroundTransparency = 1
+	menu.LayoutOrder = 1
 	menu.Visible = false
-	menu.ZIndex = 500
-	menu.ClipsDescendants = true
-	menu.Parent = ScreenGui
-	corner(menu, 6); stroke(menu, Theme.Stroke, 1, 0)
-	local ml = Instance.new("UIListLayout"); ml.Parent = menu
+	menu.Parent = wrap
+	local mp = Instance.new("UIPadding"); mp.PaddingLeft=UDim.new(0.5,4); mp.PaddingBottom=UDim.new(0,4); mp.Parent=menu
+	local ml = Instance.new("UIListLayout"); ml.Padding=UDim.new(0,2); ml.SortOrder = Enum.SortOrder.LayoutOrder; ml.Parent = menu
 
-	local function setZ(obj, z)
-		for _,d in ipairs(obj:GetDescendants()) do if d:IsA("GuiObject") then d.ZIndex = z end end
-	end
-
+	local open = false
 	local function choose(v)
 		Config[key] = v; box.Text = tostring(v)
 		if callback then task.spawn(callback, v) end
 		saveConfig()
 	end
-	for _, opt in ipairs(options) do
+	for i, opt in ipairs(options) do
 		local o = Instance.new("TextButton")
-		o.Size = UDim2.new(1, 0, 0, 26)
+		o.Size = UDim2.new(1, -8, 0, 26)
 		o.BackgroundColor3 = Theme.SurfaceHl
 		o.AutoButtonColor = false
 		o.Font = Enum.Font.Gotham
 		o.TextSize = 12
 		o.TextColor3 = Theme.Text
 		o.Text = tostring(opt)
-		o.ZIndex = 501
+		o.LayoutOrder = i
 		o.Parent = menu
+		corner(o, 5)
 		o.MouseEnter:Connect(function() tween(o,0.1,{BackgroundColor3=Theme.Accent}) end)
 		o.MouseLeave:Connect(function() tween(o,0.1,{BackgroundColor3=Theme.SurfaceHl}) end)
 		o.MouseButton1Click:Connect(function()
-			choose(opt); open=false
-			tween(menu,0.12,{Size=UDim2.fromOffset(box.AbsoluteSize.X,0)})
-			task.delay(0.12, function() if not open then menu.Visible=false end end)
+			choose(opt); open=false; menu.Visible=false; tween(arr,0.15,{Rotation=0})
 		end)
 	end
 	box.MouseButton1Click:Connect(function()
 		open = not open
-		if open then
-			local p = box.AbsolutePosition
-			menu.Position = UDim2.fromOffset(p.X, p.Y + box.AbsoluteSize.Y + 2)
-			menu.Size = UDim2.fromOffset(box.AbsoluteSize.X, 0)
-			menu.Visible = true
-			tween(menu, 0.18, {Size = UDim2.fromOffset(box.AbsoluteSize.X, #options*26)})
-		else
-			tween(menu, 0.15, {Size = UDim2.fromOffset(box.AbsoluteSize.X, 0)})
-			task.delay(0.15, function() if not open then menu.Visible=false end end)
-		end
+		menu.Visible = open
+		tween(arr, 0.18, {Rotation = open and 180 or 0})
 	end)
 	return { set = function(v) choose(v) end }
 end
@@ -1316,18 +1345,24 @@ function Comp.module(parent, text, key, subBuild, callback)
 	sw.MouseButton1Click:Connect(function() setSw(not Config[key], true); saveConfig() end)
 	setSw(Config[key], false)
 
-	-- подпанель
+	-- подпанель (плавная анимация высоты)
 	local panel = Instance.new("Frame")
 	panel.Name = "Sub"
 	panel.Size = UDim2.new(1, 0, 0, 0)
-	panel.AutomaticSize = Enum.AutomaticSize.Y
 	panel.BackgroundTransparency = 1
 	panel.LayoutOrder = 1
 	panel.Visible = false
+	panel.ClipsDescendants = true
 	panel.Parent = wrap
-	local pl = Instance.new("UIListLayout"); pl.Padding = UDim.new(0,4); pl.SortOrder = Enum.SortOrder.LayoutOrder; pl.Parent = panel
-	local pp = Instance.new("UIPadding"); pp.PaddingLeft=UDim.new(0,12); pp.PaddingRight=UDim.new(0,12); pp.PaddingBottom=UDim.new(0,10); pp.PaddingTop=UDim.new(0,2); pp.Parent = panel
-	if subBuild then subBuild(panel) end
+	local inner = Instance.new("Frame")
+	inner.Name = "Inner"
+	inner.Size = UDim2.new(1, 0, 0, 0)
+	inner.AutomaticSize = Enum.AutomaticSize.Y
+	inner.BackgroundTransparency = 1
+	inner.Parent = panel
+	local pl = Instance.new("UIListLayout"); pl.Padding = UDim.new(0,4); pl.SortOrder = Enum.SortOrder.LayoutOrder; pl.Parent = inner
+	local pp = Instance.new("UIPadding"); pp.PaddingLeft=UDim.new(0,12); pp.PaddingRight=UDim.new(0,12); pp.PaddingBottom=UDim.new(0,10); pp.PaddingTop=UDim.new(0,2); pp.Parent = inner
+	if subBuild then subBuild(inner) end
 
 	local hasSub = subBuild ~= nil
 	if not hasSub then arrow.Text = "" end  -- нет поднастроек -> нет стрелки
@@ -1335,10 +1370,17 @@ function Comp.module(parent, text, key, subBuild, callback)
 	local function togglePanel()
 		if not hasSub then return end
 		expanded = not expanded
-		panel.Visible = true
 		tween(arrow, 0.2, {Rotation = expanded and 90 or 0})
 		tween(arrow, 0.2, {TextColor3 = expanded and Theme.Accent or Theme.SubText})
-		if not expanded then task.delay(0.06, function() if not expanded then panel.Visible=false end end) end
+		if expanded then
+			panel.Visible = true
+			local h = inner.AbsoluteSize.Y
+			if h < 4 then h = 0 end
+			tween(panel, 0.22, {Size = UDim2.new(1, 0, 0, h)}, Enum.EasingStyle.Quad)
+		else
+			tween(panel, 0.18, {Size = UDim2.new(1, 0, 0, 0)}, Enum.EasingStyle.Quad)
+			task.delay(0.18, function() if not expanded then panel.Visible = false end end)
+		end
 	end
 	-- клик по шапке (ЛКМ и ПКМ) раскрывает; свитч справа тоглит сам
 	head.MouseButton1Click:Connect(togglePanel)
@@ -1688,6 +1730,9 @@ RunService.Heartbeat:Connect(function()
 	local cont = ui and ui:FindFirstChild("AuctionBiddingContainer")
 	if not (cont and cont.Visible) then return end
 	if Config.maxBid > 0 and currentBid >= Config.maxBid then return end
+	-- умно: не бидим выше своих наличных (капитал не позволяет)
+	local cash = LocalPlayer:GetAttribute("Cash") or 0
+	if currentBid > 0 and currentBid >= cash then return end
 	local row = cont:FindFirstChild("BidBarRow")
 	local zone = row and row:FindFirstChild("BidZone")
 	local cur = row and row:FindFirstChild("Cursor")
@@ -1742,13 +1787,18 @@ local function doGarageAuction(g)
 	biddingActive = false
 	currentBid = 0
 	pcall(function() fireproximityprompt(g.prompt) end)
-	-- ждём старт торгов (max 4с)
+	-- ждём старт торгов (max 5с)
 	local t0 = os.clock()
-	repeat task.wait(0.1) until biddingActive or (os.clock()-t0) > 4 or not Config.autoBid
-	if not biddingActive then return end
-	task.wait(0.35)
+	repeat task.wait(0.1) until biddingActive or (os.clock()-t0) > 5 or not Config.autoBid
+	if not biddingActive then task.wait(0.3); return end
+	task.wait(0.4)
 	-- скип дешёвого лота по начальной ставке
 	if Config.minBid > 0 and currentBid > 0 and currentBid < Config.minBid then
+		API.leaveAuction(); task.wait(0.3); return
+	end
+	-- умно: если начальная ставка уже выше наличных — контейнер не по карману, уходим
+	local cash = LocalPlayer:GetAttribute("Cash") or 0
+	if currentBid > 0 and currentBid >= cash then
 		API.leaveAuction(); task.wait(0.3); return
 	end
 	-- СТОИМ на гараже и ждём конца торгов; авто-хит (Heartbeat) сам бидит в зоне
