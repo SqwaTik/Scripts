@@ -432,14 +432,17 @@ local function commas(n)
 end
 
 local function getNetWorth()
-	local f = ev("UI.GetPlayerStats")
+	local cash = LocalPlayer:GetAttribute("Cash") or 0
+	local nw = LocalPlayer:GetAttribute("NetWorth") or LocalPlayer:GetAttribute("MaxNetWorth") or 0
+	-- точный нетворт, если доступен
+	local f = ev("UI.GetNetWorthBreakdown")
 	if f then
 		local ok, res = pcall(function() return f:InvokeServer() end)
 		if ok and type(res)=="table" then
-			return res.NetWorth or res.netWorth or res.Coins or 0, res.Coins or res.coins or 0
+			nw = res.total or res.netWorth or res.NetWorth or nw
 		end
 	end
-	return 0, 0
+	return nw, cash
 end
 
 ---------------------------------------------------------------------
