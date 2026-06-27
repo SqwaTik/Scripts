@@ -749,19 +749,26 @@ pageTitle.TextColor3 = Theme.Text
 pageTitle.TextXAlignment = Enum.TextXAlignment.Left
 pageTitle.Parent = topBar
 
--- крестик закрытия (рисуем символ, без картинки)
+-- крестик закрытия (две диагональные линии — не зависит от шрифта)
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.fromOffset(30, 30)
 closeBtn.Position = UDim2.new(1, -42, 0.5, 0)
 closeBtn.AnchorPoint = Vector2.new(0, 0.5)
 closeBtn.BackgroundColor3 = Theme.Surface
 closeBtn.AutoButtonColor = false
-closeBtn.Text = "✕"
-closeBtn.Font = Enum.Font.GothamBold
-closeBtn.TextSize = 16
-closeBtn.TextColor3 = Theme.SubText
+closeBtn.Text = ""
 closeBtn.Parent = topBar
 corner(closeBtn, 8)
+do
+	local l1 = Instance.new("Frame")
+	l1.Size = UDim2.fromOffset(15, 2); l1.Position = UDim2.fromScale(0.5,0.5); l1.AnchorPoint = Vector2.new(0.5,0.5)
+	l1.BackgroundColor3 = Theme.SubText; l1.BorderSizePixel = 0; l1.Rotation = 45; l1.Name="X1"; l1.Parent = closeBtn
+	corner(l1, 1)
+	local l2 = Instance.new("Frame")
+	l2.Size = UDim2.fromOffset(15, 2); l2.Position = UDim2.fromScale(0.5,0.5); l2.AnchorPoint = Vector2.new(0.5,0.5)
+	l2.BackgroundColor3 = Theme.SubText; l2.BorderSizePixel = 0; l2.Rotation = -45; l2.Name="X2"; l2.Parent = closeBtn
+	corner(l2, 1)
+end
 
 -- кнопка смены языка (рядом с крестиком)
 local langBtn = Instance.new("TextButton")
@@ -1316,7 +1323,6 @@ do
 end
 if not Config.bidArea or Config.bidArea == "" then Config.bidArea = areaNames[1] end
 
-local farmHint = Comp.section(farmPage, T("rmb_hint"))
 local farmSec = Comp.section(farmPage, nil)
 -- автобид (свёрнут, ПКМ -> поднастройки)
 Comp.module(farmSec, T("auto_bid"), "autoBid", function(p)
@@ -1331,7 +1337,6 @@ Comp.module(farmSec, T("auto_fish"), "autoFish", nil)
 Comp.module(farmSec, T("auto_collect"), "autoCollectAll", nil)
 
 -- =========== SELL ===========
-Comp.section(sellPage, T("rmb_hint"))
 local sellSec = Comp.section(sellPage, nil)
 Comp.module(sellSec, T("auto_sell"), "autoSell", function(p)
 	Comp.toggle(p, T("sell_with_car"), "sellWithCar")
@@ -1361,7 +1366,6 @@ task.spawn(function()
 end)
 
 -- =========== PROCESS ===========
-Comp.section(processPage, T("rmb_hint"))
 local procSec = Comp.section(processPage, nil)
 Comp.module(procSec, T("auto_wash"), "autoWash", function(p)
 	Comp.slider(p, T("wash_min"), "washMin", 0, 50000, 25, "$")
@@ -1374,7 +1378,6 @@ local srcSec = Comp.section(processPage, T("source"))
 Comp.dropdown(srcSec, T("source"), "procSource", {"Inventory", "Vehicle"})
 
 -- =========== SHOP ===========
-Comp.section(shopPage, T("rmb_hint"))
 local drinkSec = Comp.section(shopPage, nil)
 Comp.module(drinkSec, T("auto_buy_drink"), "autoBuyDrink", function(p)
 	Comp.dropdown(p, T("drink_tier"), "drinkTier", {"1","2","3"})
@@ -1727,8 +1730,14 @@ local function toggleGui()
 end
 
 closeBtn.MouseButton1Click:Connect(function() setVisible(false) end)
-closeBtn.MouseEnter:Connect(function() tween(closeBtn,0.15,{BackgroundColor3=Theme.Danger, TextColor3=Color3.new(1,1,1)}) end)
-closeBtn.MouseLeave:Connect(function() tween(closeBtn,0.15,{BackgroundColor3=Theme.Surface, TextColor3=Theme.SubText}) end)
+closeBtn.MouseEnter:Connect(function()
+	tween(closeBtn,0.15,{BackgroundColor3=Theme.Danger})
+	tween(closeBtn.X1,0.15,{BackgroundColor3=Color3.new(1,1,1)}); tween(closeBtn.X2,0.15,{BackgroundColor3=Color3.new(1,1,1)})
+end)
+closeBtn.MouseLeave:Connect(function()
+	tween(closeBtn,0.15,{BackgroundColor3=Theme.Surface})
+	tween(closeBtn.X1,0.15,{BackgroundColor3=Theme.SubText}); tween(closeBtn.X2,0.15,{BackgroundColor3=Theme.SubText})
+end)
 
 local function keyFromName(name)
 	for _, e in ipairs(Enum.KeyCode:GetEnumItems()) do
