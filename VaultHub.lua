@@ -11,6 +11,7 @@ if shared.__VAULTHUB_LOADED then
 	if ex then ex:Destroy() end
 end
 shared.__VAULTHUB_LOADED = true
+local VH_SCRIPT_URL = "https://raw.githubusercontent.com/SqwaTik/Scripts/main/VaultHub.lua"
 
 local _BUILD_OK, _BUILD_ERR = xpcall(function()
 
@@ -84,6 +85,8 @@ local L = {
 		cfg_exported="Скопировано в буфер", cfg_imported="Конфиг импортирован",
 		paste_here="Вставь конфиг сюда...", credits="by SqwaTik",
 		on="ВКЛ", off="ВЫКЛ", none="нет",
+		rmb_hint="ПКМ по функции — поднастройки", predictions="Эвенты",
+		ev_soon="скоро", ev_active="идёт",
 	},
 	en = {
 		title="VAULT HUB", subtitle="Vault Hunters Open World",
@@ -115,6 +118,8 @@ local L = {
 		cfg_exported="Copied to clipboard", cfg_imported="Config imported",
 		paste_here="Paste config here...", credits="by SqwaTik",
 		on="ON", off="OFF", none="none",
+		rmb_hint="Right-click a function for sub-settings", predictions="Events",
+		ev_soon="soon", ev_active="active",
 	},
 }
 local function T(key)
@@ -744,30 +749,77 @@ pageTitle.TextColor3 = Theme.Text
 pageTitle.TextXAlignment = Enum.TextXAlignment.Left
 pageTitle.Parent = topBar
 
-local closeBtn = Instance.new("ImageButton")
+-- крестик закрытия (рисуем символ, без картинки)
+local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.fromOffset(30, 30)
 closeBtn.Position = UDim2.new(1, -42, 0.5, 0)
 closeBtn.AnchorPoint = Vector2.new(0, 0.5)
 closeBtn.BackgroundColor3 = Theme.Surface
-closeBtn.Image = ICON.close
-closeBtn.ImageColor3 = Theme.SubText
-closeBtn.ScaleType = Enum.ScaleType.Fit
+closeBtn.AutoButtonColor = false
+closeBtn.Text = "✕"
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.TextSize = 16
+closeBtn.TextColor3 = Theme.SubText
 closeBtn.Parent = topBar
 corner(closeBtn, 8)
-local clpad = Instance.new("UIPadding"); clpad.PaddingTop=UDim.new(0,7);clpad.PaddingBottom=UDim.new(0,7);clpad.PaddingLeft=UDim.new(0,7);clpad.PaddingRight=UDim.new(0,7); clpad.Parent=closeBtn
+
+-- кнопка смены языка (рядом с крестиком)
+local langBtn = Instance.new("TextButton")
+langBtn.Size = UDim2.fromOffset(34, 30)
+langBtn.Position = UDim2.new(1, -82, 0.5, 0)
+langBtn.AnchorPoint = Vector2.new(0, 0.5)
+langBtn.BackgroundColor3 = Theme.Surface
+langBtn.AutoButtonColor = false
+langBtn.Text = "🌐 "..tostring(Locale):upper()
+langBtn.Font = Enum.Font.GothamBold
+langBtn.TextSize = 11
+langBtn.TextColor3 = Theme.Accent2
+langBtn.Parent = topBar
+corner(langBtn, 8)
+langBtn.MouseEnter:Connect(function() tween(langBtn,0.15,{BackgroundColor3=Theme.SurfaceHl}) end)
+langBtn.MouseLeave:Connect(function() tween(langBtn,0.15,{BackgroundColor3=Theme.Surface}) end)
+langBtn.MouseButton1Click:Connect(function()
+	Config.language = (Locale == "ru") and "en" or "ru"
+	Locale = Config.language
+	saveConfig()
+	-- мгновенный перезапуск интерфейса с новым языком
+	shared.__VAULTHUB_LOADED = nil
+	ScreenGui:Destroy()
+	task.spawn(function()
+		local ok, body = pcall(function() return game:HttpGet(VH_SCRIPT_URL) end)
+		if ok and body then local f = loadstring(body); if f then f() end end
+	end)
+end)
 
 local pages = {}
 local tabButtons = {}
 local currentTab
+
+-- общий индикатор активной вкладки (плавно съезжает)
+local tabIndicator = Instance.new("Frame")
+tabIndicator.Name = "TabIndicator"
+tabIndicator.Size = UDim2.fromOffset(3, 22)
+tabIndicator.Position = UDim2.new(0, 0, 0, 76)
+tabIndicator.BackgroundColor3 = Theme.Accent
+tabIndicator.BorderSizePixel = 0
+tabIndicator.ZIndex = 6
+tabIndicator.Parent = Side
+corner(tabIndicator, 2)
+local tig = Instance.new("UIGradient"); tig.Color = ColorSequence.new(Theme.Accent, Theme.Accent2); tig.Rotation = 90; tig.Parent = tabIndicator
 
 local function selectTab(name)
 	currentTab = name
 	for n, t in pairs(tabButtons) do
 		local active = (n == name)
 		tween(t.btn, 0.2, {BackgroundColor3 = active and Theme.Surface or Theme.Panel})
-		tween(t.bar, 0.2, {BackgroundTransparency = active and 0 or 1})
+		if t.bar then t.bar.BackgroundTransparency = 1 end
 		tween(t.ico, 0.2, {ImageColor3 = active and Theme.Accent or Theme.SubText})
 		tween(t.lbl, 0.2, {TextColor3 = active and Theme.Text or Theme.SubText})
+	end
+	local t = tabButtons[name]
+	if t then
+		local y = 64 + 4 + (t.btn.LayoutOrder - 1) * 44 + 9
+		tween(tabIndicator, 0.3, {Position = UDim2.new(0, 0, 0, y)}, Enum.EasingStyle.Back)
 	end
 	for n, pg in pairs(pages) do pg.Visible = (n == name) end
 	pageTitle.Text = T("tab_"..name)
@@ -1124,6 +1176,101 @@ function Comp.textbox(parent, placeholder, callback)
 	return b
 end
 
+-- модуль: строка-тоггл + ПКМ раскрывает поднастройки (subBuild(panel))
+function Comp.module(parent, text, key, subBuild, callback)
+	local wrap = Instance.new("Frame")
+	wrap.Size = UDim2.new(1, 0, 0, 36)
+	wrap.BackgroundColor3 = Theme.Surface
+	wrap.BorderSizePixel = 0
+	wrap.AutomaticSize = Enum.AutomaticSize.Y
+	wrap.ClipsDescendants = true
+	wrap.Parent = parent
+	corner(wrap, 8); stroke(wrap, Theme.Stroke, 1, 0.5)
+	local wl = Instance.new("UIListLayout"); wl.SortOrder = Enum.SortOrder.LayoutOrder; wl.Parent = wrap
+
+	-- шапка
+	local head = Instance.new("Frame")
+	head.Size = UDim2.new(1, 0, 0, 36)
+	head.BackgroundTransparency = 1
+	head.LayoutOrder = 0
+	head.Parent = wrap
+
+	local arrow = Instance.new("TextLabel")
+	arrow.Size = UDim2.fromOffset(20, 36)
+	arrow.Position = UDim2.new(0, 6, 0, 0)
+	arrow.BackgroundTransparency = 1
+	arrow.Text = "›"
+	arrow.Font = Enum.Font.GothamBold
+	arrow.TextSize = 16
+	arrow.TextColor3 = Theme.SubText
+	arrow.Parent = head
+
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.new(1, -90, 1, 0)
+	lbl.Position = UDim2.new(0, 30, 0, 0)
+	lbl.BackgroundTransparency = 1
+	lbl.Text = text
+	lbl.Font = Enum.Font.GothamMedium
+	lbl.TextSize = 13
+	lbl.TextColor3 = Theme.Text
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.Parent = head
+
+	local sw = Instance.new("TextButton")
+	sw.Size = UDim2.fromOffset(44, 24)
+	sw.Position = UDim2.new(1, -52, 0.5, 0)
+	sw.AnchorPoint = Vector2.new(0, 0.5)
+	sw.AutoButtonColor = false
+	sw.Text = ""
+	sw.BackgroundColor3 = Theme.Panel
+	sw.Parent = head
+	corner(sw, 12); stroke(sw, Theme.Stroke, 1, 0.3)
+	local knob = Instance.new("Frame")
+	knob.Size = UDim2.fromOffset(18, 18)
+	knob.Position = UDim2.new(0, 3, 0.5, 0)
+	knob.AnchorPoint = Vector2.new(0, 0.5)
+	knob.BackgroundColor3 = Theme.SubText
+	knob.BorderSizePixel = 0
+	knob.Parent = sw
+	corner(knob, 9)
+
+	local function setSw(v, fire)
+		Config[key] = v
+		tween(sw, 0.2, {BackgroundColor3 = v and Theme.Accent or Theme.Panel})
+		tween(knob, 0.2, {Position = v and UDim2.new(1,-21,0.5,0) or UDim2.new(0,3,0.5,0), BackgroundColor3 = v and Color3.new(1,1,1) or Theme.SubText})
+		if fire and callback then task.spawn(callback, v) end
+	end
+	sw.MouseButton1Click:Connect(function() setSw(not Config[key], true); saveConfig() end)
+	setSw(Config[key], false)
+
+	-- подпанель
+	local panel = Instance.new("Frame")
+	panel.Name = "Sub"
+	panel.Size = UDim2.new(1, 0, 0, 0)
+	panel.BackgroundTransparency = 1
+	panel.LayoutOrder = 1
+	panel.Visible = false
+	panel.Parent = wrap
+	local pl = Instance.new("UIListLayout"); pl.Padding = UDim.new(0,4); pl.SortOrder = Enum.SortOrder.LayoutOrder; pl.Parent = panel
+	local pp = Instance.new("UIPadding"); pp.PaddingLeft=UDim.new(0,12); pp.PaddingRight=UDim.new(0,12); pp.PaddingBottom=UDim.new(0,10); pp.PaddingTop=UDim.new(0,2); pp.Parent = panel
+	if subBuild then subBuild(panel) end
+
+	local expanded = false
+	local function togglePanel()
+		expanded = not expanded
+		panel.Visible = true
+		tween(arrow, 0.2, {Rotation = expanded and 90 or 0})
+		if not expanded then task.delay(0.05, function() if not expanded then panel.Visible=false end end) end
+	end
+	-- ПКМ по шапке -> раскрыть поднастройки
+	for _, el in ipairs({head, arrow, lbl}) do
+		el.InputBegan:Connect(function(inp)
+			if inp.UserInputType == Enum.UserInputType.MouseButton2 then togglePanel() end
+		end)
+	end
+	return { set = setSw }
+end
+
 ---------------------------------------------------------------------
 -- BUILD TABS
 ---------------------------------------------------------------------
@@ -1169,35 +1316,35 @@ do
 end
 if not Config.bidArea or Config.bidArea == "" then Config.bidArea = areaNames[1] end
 
-local farmAuction = Comp.section(farmPage, T("auto_bid"))
-Comp.toggle(farmAuction, T("auto_bid"), "autoBid")
-Comp.dropdown(farmAuction, T("bid_area"), "bidArea", areaNames)
-Comp.slider(farmAuction, T("min_bid"), "minBid", 0, 50000, 25, "$")
-Comp.slider(farmAuction, T("max_bid"), "maxBid", 0, 100000, 50, "$")
-Comp.slider(farmAuction, T("bid_speed"), "bidSpeed", 0.1, 1.5, 0.05, "s")
-Comp.toggle(farmAuction, T("auto_buyitems"), "autoBuyItems")
-Comp.slider(farmAuction, T("profit_min"), "profitMin", 0, 100, 5, "%")
-
-local farmFish = Comp.section(farmPage, T("auto_fish"))
-Comp.toggle(farmFish, T("auto_fish"), "autoFish")
-
-local farmMisc = Comp.section(farmPage, T("quick"))
-Comp.toggle(farmMisc, T("auto_collect"), "autoCollectAll")
+local farmHint = Comp.section(farmPage, T("rmb_hint"))
+local farmSec = Comp.section(farmPage, nil)
+-- автобид (свёрнут, ПКМ -> поднастройки)
+Comp.module(farmSec, T("auto_bid"), "autoBid", function(p)
+	Comp.dropdown(p, T("bid_area"), "bidArea", areaNames)
+	Comp.slider(p, T("min_bid"), "minBid", 0, 50000, 25, "$")
+	Comp.slider(p, T("max_bid"), "maxBid", 0, 100000, 50, "$")
+	Comp.slider(p, T("bid_speed"), "bidSpeed", 0.1, 1.5, 0.05, "s")
+	Comp.toggle(p, T("auto_buyitems"), "autoBuyItems")
+	Comp.slider(p, T("profit_min"), "profitMin", 0, 100, 5, "%")
+end)
+Comp.module(farmSec, T("auto_fish"), "autoFish", nil)
+Comp.module(farmSec, T("auto_collect"), "autoCollectAll", nil)
 
 -- =========== SELL ===========
-local sellSec = Comp.section(sellPage, T("auto_sell"))
-Comp.toggle(sellSec, T("auto_sell"), "autoSell")
-Comp.toggle(sellSec, T("sell_with_car"), "sellWithCar")
-Comp.toggle(sellSec, T("keep_fav"), "keepFav")
-Comp.toggle(sellSec, T("keep_trophy"), "keepTrophy")
-Comp.slider(sellSec, T("sell_min"), "sellMin", 0, 50000, 25, "$")
+Comp.section(sellPage, T("rmb_hint"))
+local sellSec = Comp.section(sellPage, nil)
+Comp.module(sellSec, T("auto_sell"), "autoSell", function(p)
+	Comp.toggle(p, T("sell_with_car"), "sellWithCar")
+	Comp.toggle(p, T("keep_fav"), "keepFav")
+	Comp.toggle(p, T("keep_trophy"), "keepTrophy")
+	Comp.slider(p, T("sell_min"), "sellMin", 0, 50000, 25, "$")
+end)
+Comp.module(sellSec, T("auto_stock"), "autoStock", function(p)
+	Comp.toggle(p, T("return_full"), "returnWhenFull")
+	Comp.toggle(p, T("auto_trade"), "autoTrade")
+	Comp.slider(p, T("trade_min"), "tradeMinPercent", 0, 100, 5, "%")
+end)
 Comp.button(sellSec, T("sell_now"), Theme.Success, function() _G.__VH_sellNow() end)
-
-local shopSec = Comp.section(sellPage, T("auto_stock"))
-Comp.toggle(shopSec, T("return_full"), "returnWhenFull")
-Comp.toggle(shopSec, T("auto_stock"), "autoStock")
-Comp.toggle(shopSec, T("auto_trade"), "autoTrade")
-Comp.slider(shopSec, T("trade_min"), "tradeMinPercent", 0, 100, 5, "%")
 
 local sellInfo = Comp.section(sellPage, nil)
 local rateLbl = Comp.label(sellInfo, T("pawn_rate")..": ...")
@@ -1214,33 +1361,39 @@ task.spawn(function()
 end)
 
 -- =========== PROCESS ===========
-local washSec = Comp.section(processPage, T("auto_wash"))
-Comp.toggle(washSec, T("auto_wash"), "autoWash")
-Comp.slider(washSec, T("wash_min"), "washMin", 0, 50000, 50, "$")
-
-local gradeSec = Comp.section(processPage, T("auto_grade"))
-Comp.toggle(gradeSec, T("auto_grade"), "autoGrade")
-Comp.slider(gradeSec, T("grade_min"), "gradeMin", 0, 50000, 50, "$")
-
-local repairSec = Comp.section(processPage, T("auto_repair"))
-Comp.toggle(repairSec, T("auto_repair"), "autoRepair")
-
+Comp.section(processPage, T("rmb_hint"))
+local procSec = Comp.section(processPage, nil)
+Comp.module(procSec, T("auto_wash"), "autoWash", function(p)
+	Comp.slider(p, T("wash_min"), "washMin", 0, 50000, 25, "$")
+end)
+Comp.module(procSec, T("auto_grade"), "autoGrade", function(p)
+	Comp.slider(p, T("grade_min"), "gradeMin", 0, 50000, 25, "$")
+end)
+Comp.module(procSec, T("auto_repair"), "autoRepair", nil)
 local srcSec = Comp.section(processPage, T("source"))
 Comp.dropdown(srcSec, T("source"), "procSource", {"Inventory", "Vehicle"})
 
 -- =========== SHOP ===========
-local drinkSec = Comp.section(shopPage, T("auto_buy_drink"))
-Comp.toggle(drinkSec, T("auto_buy_drink"), "autoBuyDrink")
-Comp.dropdown(drinkSec, T("drink_tier"), "drinkTier", {"1","2","3"})
-Comp.button(drinkSec, T("buy_now"), Theme.Accent, function()
-	API.buyDrink(Config.drinkTier)
+Comp.section(shopPage, T("rmb_hint"))
+local drinkSec = Comp.section(shopPage, nil)
+Comp.module(drinkSec, T("auto_buy_drink"), "autoBuyDrink", function(p)
+	Comp.dropdown(p, T("drink_tier"), "drinkTier", {"1","2","3"})
+	Comp.button(p, T("buy_now"), Theme.Accent, function() API.buyDrink(Config.drinkTier) end)
 end)
-local restockLbl = Comp.label(drinkSec, T("restock")..": ...")
+local restockLbl = Comp.label(Comp.section(shopPage, nil), T("restock")..": ...")
 task.spawn(function()
+	local secs = 0
+	local lastFetch = 0
 	while ScreenGui.Parent do
-		local c = API.energyCatalog()
-		if c.RestockSeconds then restockLbl.Text = string.format("%s: %ds", T("restock"), c.RestockSeconds) end
-		task.wait(5)
+		-- запрашиваем каталог раз в 10с, но обратный отсчёт тикает каждую секунду
+		if os.clock() - lastFetch > 10 then
+			local c = API.energyCatalog()
+			if c.RestockSeconds then secs = c.RestockSeconds end
+			lastFetch = os.clock()
+		end
+		if secs > 0 then secs = secs - 1 end
+		restockLbl.Text = string.format("%s: %ds", T("restock"), math.max(0, secs))
+		task.wait(1)
 	end
 end)
 
@@ -1283,11 +1436,7 @@ local function buildTeleports()
 end
 
 -- =========== SETTINGS ===========
-local setSec = Comp.section(settingsPage, T("language"))
-Comp.dropdown(setSec, T("language"), "language", {"ru","en"}, function(v)
-	Locale = v; Config.language = v; saveConfig()
-	notify("Language: "..v)
-end)
+local setSec = Comp.section(settingsPage, T("keybind"))
 
 local cfgSec = Comp.section(settingsPage, T("save_cfg"))
 Comp.button(cfgSec, T("save_cfg"), Theme.Success, function()
@@ -1451,64 +1600,86 @@ do
 	end) end
 end
 
--- NPC-аукционист в каждой зоне
-local AUCTION_NPC = {["Junk Yard"]="Billy", ["Back Alley"]="Sal", ["Farmyard"]="Ted", ["Shipyard"]="Steve"}
-
-local function getAuctioneer()
-	local areaName = Config.bidArea
-	local areas = Workspace:FindFirstChild("Areas")
-	if not areas then return nil end
-	local a = areas:FindFirstChild(areaName)
-	if not a then return nil end
-	return a:FindFirstChild(AUCTION_NPC[areaName] or "")
+-- КОНТЕЙНЕРЫ = гаражи в Workspace._Debris.Garages (промпт "Start Auction")
+-- центры зон для фильтра по выбранной локации
+local AREA_CENTER = {}
+do
+	for _, poi in ipairs(API.getPOIs()) do
+		if poi.category == "Area" then AREA_CENTER[poi.name] = parseVec(poi.position) end
+	end
 end
 
--- тепаем именно К КОНТЕЙНЕРУ/аукционисту, а не в центр зоны, и стартуем аукцион промптом
-local function tpToBidArea()
-	local npc = getAuctioneer()
-	if npc then
-		local pp = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart or npc:FindFirstChildWhichIsA("BasePart")
-		if pp then
-			local hrp = getHRP()
-			if hrp then hrp.CFrame = CFrame.new(pp.Position + Vector3.new(3, 0, 0)) end
-			-- запускаем аукцион ближайшим ProximityPrompt "Talk"
-			for _, d in ipairs(npc:GetDescendants()) do
-				if d:IsA("ProximityPrompt") then
-					pcall(function() fireproximityprompt(d) end)
-					break
-				end
+local function getGarages()
+	local out = {}
+	local gf = Workspace:FindFirstChild("_Debris")
+	gf = gf and gf:FindFirstChild("Garages")
+	if not gf then return out end
+	for _, g in ipairs(gf:GetChildren()) do
+		local entry = g:FindFirstChild("EntrySquare")
+		local prompt
+		if entry then
+			for _, d in ipairs(entry:GetDescendants()) do
+				if d:IsA("ProximityPrompt") and d.ActionText == "Start Auction" then prompt = d; break end
 			end
-			return true
+		end
+		local part = prompt and (prompt.Parent:IsA("BasePart") and prompt.Parent or (entry:IsA("BasePart") and entry or entry:FindFirstChildWhichIsA("BasePart")))
+		if prompt and part then
+			table.insert(out, {model=g, part=part, prompt=prompt, name=g.Name, pos=part.Position})
 		end
 	end
-	-- запасной вариант: центр зоны
-	for _, poi in ipairs(API.getPOIs()) do
-		if poi.category == "Area" and poi.name == Config.bidArea then
-			teleport(poi.position); return true
-		end
+	return out
+end
+
+-- один цикл аукциона на конкретном гараже
+local function doGarageAuction(g)
+	local hrp = getHRP()
+	if not hrp or not g.part then return end
+	hrp.CFrame = CFrame.new(g.part.Position + Vector3.new(0, 3, 0))
+	task.wait(0.35)
+	biddingActive = false
+	currentBid = 0
+	pcall(function() fireproximityprompt(g.prompt) end)
+	-- ждём старт торгов (max 4с)
+	local t0 = os.clock()
+	repeat task.wait(0.1) until biddingActive or (os.clock()-t0) > 4 or not Config.autoBid
+	if not biddingActive then return end
+	task.wait(0.25)
+	-- скип дешёвого лота
+	if Config.minBid > 0 and currentBid > 0 and currentBid < Config.minBid then
+		API.leaveAuction(); return
 	end
-	return false
+	-- спам Bid до победы/выхода/потолка
+	local bt = os.clock()
+	while biddingActive and Config.autoBid and (os.clock()-bt) < 20 do
+		if Config.maxBid > 0 and currentBid >= Config.maxBid then
+			API.leaveAuction(); break
+		end
+		API.bid()
+		task.wait(Config.bidSpeed or 0.2)
+	end
+	task.wait(0.4) -- дать забрать предметы (auto-pickup на событии)
 end
 
 task.spawn(function()
 	while ScreenGui.Parent do
 		if Config.autoBid then
-			if not biddingActive then
-				tpToBidArea() -- подъезжаем к зоне, ждём начала лота
-				task.wait(1)
-			else
-				-- скип дешёвых лотов
-				if Config.minBid > 0 and currentBid > 0 and currentBid < Config.minBid then
-					API.leaveAuction(); task.wait(1)
-				-- стоп если ставка превысила потолок
-				elseif Config.maxBid > 0 and currentBid >= Config.maxBid then
-					task.wait(0.5)
-				else
-					API.bid()
+			local garages = getGarages()
+			local center = AREA_CENTER[Config.bidArea]
+			-- сортируем по близости к выбранной зоне
+			if center then
+				table.sort(garages, function(a,b) return (a.pos-center).Magnitude < (b.pos-center).Magnitude end)
+			end
+			for _, g in ipairs(garages) do
+				if not Config.autoBid then break end
+				-- только гаражи выбранной зоны (в радиусе) если зона задана
+				if (not center) or (g.pos - center).Magnitude < 350 then
+					pcall(doGarageAuction, g)
 				end
 			end
+			task.wait(1)
+		else
+			task.wait(1)
 		end
-		task.wait(Config.bidSpeed or 0.35)
 	end
 end)
 
@@ -1556,8 +1727,8 @@ local function toggleGui()
 end
 
 closeBtn.MouseButton1Click:Connect(function() setVisible(false) end)
-closeBtn.MouseEnter:Connect(function() tween(closeBtn,0.15,{BackgroundColor3=Theme.Danger, ImageColor3=Color3.new(1,1,1)}) end)
-closeBtn.MouseLeave:Connect(function() tween(closeBtn,0.15,{BackgroundColor3=Theme.Surface, ImageColor3=Theme.SubText}) end)
+closeBtn.MouseEnter:Connect(function() tween(closeBtn,0.15,{BackgroundColor3=Theme.Danger, TextColor3=Color3.new(1,1,1)}) end)
+closeBtn.MouseLeave:Connect(function() tween(closeBtn,0.15,{BackgroundColor3=Theme.Surface, TextColor3=Theme.SubText}) end)
 
 local function keyFromName(name)
 	for _, e in ipairs(Enum.KeyCode:GetEnumItems()) do
@@ -1603,6 +1774,81 @@ end)
 buildTeleports()
 selectTab("home")
 LocalPlayer.CharacterAdded:Connect(function() task.wait(2); buildTeleports() end)
+
+-- ============ PREDICTIONS (снизу справа) ============
+do
+	local SEM, SEC
+	pcall(function() SEM = require(Modules.SpecialEventManager) end)
+	pcall(function() SEC = require(Modules.SpecialEventConfig) end)
+	local eventNames = {}
+	if SEC and SEC.Events then for _, e in ipairs(SEC.Events) do table.insert(eventNames, e.Name or e.Id) end end
+	if #eventNames == 0 then eventNames = {"Moonlit","Lucky Lots","Rain"} end
+
+	local pred = Instance.new("Frame")
+	pred.Name = "Predictions"
+	pred.Size = UDim2.fromOffset(210, 0)
+	pred.AutomaticSize = Enum.AutomaticSize.Y
+	pred.AnchorPoint = Vector2.new(1, 1)
+	pred.Position = UDim2.new(1, -14, 1, -14)
+	pred.BackgroundColor3 = Theme.Panel
+	pred.BackgroundTransparency = 0.1
+	pred.BorderSizePixel = 0
+	pred.Parent = ScreenGui
+	corner(pred, 10); stroke(pred, Theme.Stroke, 1, 0.3)
+	local pl = Instance.new("UIListLayout"); pl.Padding = UDim.new(0, 5); pl.SortOrder = Enum.SortOrder.LayoutOrder; pl.Parent = pred
+	local pp2 = Instance.new("UIPadding"); pp2.PaddingTop=UDim.new(0,10);pp2.PaddingBottom=UDim.new(0,10);pp2.PaddingLeft=UDim.new(0,12);pp2.PaddingRight=UDim.new(0,12); pp2.Parent = pred
+
+	local ptitle = Instance.new("TextLabel")
+	ptitle.Size = UDim2.new(1, 0, 0, 18)
+	ptitle.BackgroundTransparency = 1
+	ptitle.Font = Enum.Font.GothamBold
+	ptitle.TextSize = 13
+	ptitle.TextColor3 = Theme.Accent2
+	ptitle.TextXAlignment = Enum.TextXAlignment.Left
+	ptitle.LayoutOrder = 0
+	ptitle.Parent = pred
+
+	local rows = {}
+	for i, name in ipairs(eventNames) do
+		local row = Instance.new("TextLabel")
+		row.Size = UDim2.new(1, 0, 0, 16)
+		row.BackgroundTransparency = 1
+		row.Font = Enum.Font.GothamMedium
+		row.TextSize = 12
+		row.TextColor3 = Theme.SubText
+		row.TextXAlignment = Enum.TextXAlignment.Left
+		row.LayoutOrder = i
+		row.Text = name..": ..."
+		row.Parent = pred
+		rows[name] = row
+	end
+
+	task.spawn(function()
+		while ScreenGui.Parent do
+			ptitle.Text = "⏳ "..T("predictions")
+			for _, name in ipairs(eventNames) do
+				local row = rows[name]
+				local startTs
+				pcall(function() if SEM then startTs = SEM:GetNextEventStart(name) end end)
+				if row then
+					if startTs and tonumber(startTs) then
+						local left = math.floor(tonumber(startTs) - os.time())
+						if left <= 0 then
+							row.Text = "🟢 "..name..": "..T("ev_active")
+							row.TextColor3 = Theme.Success
+						else
+							row.Text = string.format("%s: %d:%02d", name, math.floor(left/60), left%60)
+							row.TextColor3 = Theme.SubText
+						end
+					else
+						row.Text = name..": "..T("none")
+					end
+				end
+			end
+			task.wait(1)
+		end
+	end)
+end
 
 showLoader(function()
 	setVisible(true)
