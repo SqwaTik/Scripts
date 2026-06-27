@@ -87,6 +87,15 @@ local L = {
 		on="ВКЛ", off="ВЫКЛ", none="нет",
 		rmb_hint="ПКМ по функции — поднастройки", predictions="Эвенты",
 		ev_soon="скоро", ev_active="идёт",
+		tip_autoBid="Авто-аукцион: телепорт к контейнерам-гаражам, старт аукциона и авто-попадание по полосе ставок (без промахов). Скип дешёвых по мин.ставке, стоп по макс.",
+		tip_autoFish="Авто-рыбалка: телепорт к озеру и автоматический заброс удочки.",
+		tip_autoCollect="Авто-сбор: периодически собирает доступные награды/предметы.",
+		tip_autoSell="Авто-продажа: телепорт в скупку, продаёт предметы начиная с самых дорогих (фильтры: избранное/трофеи/мин.цена).",
+		tip_autoStock="Авто-магазин: возврат на базу при полном весе, выгрузка в инвентарь и торговля через помощника.",
+		tip_autoWash="Авто-мойка: моет дорогие предметы (от заданной цены) по свободным слотам.",
+		tip_autoGrade="Авто-оценка: оценивает дорогие предметы (от заданной цены) по слотам.",
+		tip_autoRepair="Авто-ремонт: чинит предметы по свободным слотам.",
+		tip_autoBuyDrink="Авто-покупка зелек удачи выбранного уровня, когда есть в наличии.",
 	},
 	en = {
 		title="VAULT HUB", subtitle="Vault Hunters Open World",
@@ -120,6 +129,15 @@ local L = {
 		on="ON", off="OFF", none="none",
 		rmb_hint="Right-click a function for sub-settings", predictions="Events",
 		ev_soon="soon", ev_active="active",
+		tip_autoBid="Auto auction: teleports to garage containers, starts the auction and auto-hits the bid bar (no misses). Skips cheap lots by min bid, stops at max.",
+		tip_autoFish="Auto fishing: teleports to the lake and casts automatically.",
+		tip_autoCollect="Auto collect: periodically claims available rewards/items.",
+		tip_autoSell="Auto sell: teleports to pawn shop, sells items most-expensive first (filters: favorited/trophies/min price).",
+		tip_autoStock="Auto shop: returns to base when full, unloads to inventory and trades via assistant.",
+		tip_autoWash="Auto wash: washes expensive items (above set price) into free slots.",
+		tip_autoGrade="Auto grade: grades expensive items (above set price) into slots.",
+		tip_autoRepair="Auto repair: repairs items into free slots.",
+		tip_autoBuyDrink="Auto-buys luck drinks of the chosen tier when in stock.",
 	},
 }
 local function T(key)
@@ -798,6 +816,53 @@ langBtn.MouseButton1Click:Connect(function()
 	end)
 end)
 
+-- ГЛОБАЛЬНЫЙ ТУЛТИП (вверху по центру окна)
+local tooltip = Instance.new("Frame")
+tooltip.Name = "Tooltip"
+tooltip.AnchorPoint = Vector2.new(0.5, 0)
+tooltip.Position = UDim2.new(0.5, 85, 0, 8)
+tooltip.Size = UDim2.fromOffset(400, 0)
+tooltip.AutomaticSize = Enum.AutomaticSize.Y
+tooltip.BackgroundColor3 = Color3.fromRGB(18, 19, 26)
+tooltip.BackgroundTransparency = 1
+tooltip.Visible = false
+tooltip.ZIndex = 600
+tooltip.Parent = Main
+corner(tooltip, 8)
+local ttStroke = stroke(tooltip, Theme.Accent, 1, 1)
+local ttPad = Instance.new("UIPadding")
+ttPad.PaddingTop=UDim.new(0,8); ttPad.PaddingBottom=UDim.new(0,8); ttPad.PaddingLeft=UDim.new(0,12); ttPad.PaddingRight=UDim.new(0,12); ttPad.Parent = tooltip
+local ttText = Instance.new("TextLabel")
+ttText.Size = UDim2.new(1, 0, 0, 0)
+ttText.AutomaticSize = Enum.AutomaticSize.Y
+ttText.BackgroundTransparency = 1
+ttText.Font = Enum.Font.Gotham
+ttText.TextSize = 12
+ttText.TextColor3 = Theme.Text
+ttText.TextWrapped = true
+ttText.TextXAlignment = Enum.TextXAlignment.Left
+ttText.TextTransparency = 1
+ttText.ZIndex = 601
+ttText.Parent = tooltip
+
+local function attachTip(obj, getText)
+	obj.MouseEnter:Connect(function()
+		local txt = getText()
+		if not txt or txt == "" then return end
+		ttText.Text = txt
+		tooltip.Visible = true
+		tween(tooltip, 0.15, {BackgroundTransparency = 0.05})
+		tween(ttStroke, 0.15, {Transparency = 0.4})
+		tween(ttText, 0.15, {TextTransparency = 0})
+	end)
+	obj.MouseLeave:Connect(function()
+		tween(tooltip, 0.15, {BackgroundTransparency = 1})
+		tween(ttStroke, 0.15, {Transparency = 1})
+		tween(ttText, 0.15, {TextTransparency = 1})
+		task.delay(0.16, function() if ttText.TextTransparency >= 1 then tooltip.Visible = false end end)
+	end)
+end
+
 local pages = {}
 local tabButtons = {}
 local currentTab
@@ -1190,15 +1255,16 @@ function Comp.module(parent, text, key, subBuild, callback)
 	wrap.BackgroundColor3 = Theme.Surface
 	wrap.BorderSizePixel = 0
 	wrap.AutomaticSize = Enum.AutomaticSize.Y
-	wrap.ClipsDescendants = true
 	wrap.Parent = parent
 	corner(wrap, 8); stroke(wrap, Theme.Stroke, 1, 0.5)
 	local wl = Instance.new("UIListLayout"); wl.SortOrder = Enum.SortOrder.LayoutOrder; wl.Parent = wrap
 
-	-- шапка
-	local head = Instance.new("Frame")
+	-- шапка (кликабельна -> раскрывает поднастройки)
+	local head = Instance.new("TextButton")
 	head.Size = UDim2.new(1, 0, 0, 36)
 	head.BackgroundTransparency = 1
+	head.AutoButtonColor = false
+	head.Text = ""
 	head.LayoutOrder = 0
 	head.Parent = wrap
 
@@ -1254,6 +1320,7 @@ function Comp.module(parent, text, key, subBuild, callback)
 	local panel = Instance.new("Frame")
 	panel.Name = "Sub"
 	panel.Size = UDim2.new(1, 0, 0, 0)
+	panel.AutomaticSize = Enum.AutomaticSize.Y
 	panel.BackgroundTransparency = 1
 	panel.LayoutOrder = 1
 	panel.Visible = false
@@ -1262,19 +1329,28 @@ function Comp.module(parent, text, key, subBuild, callback)
 	local pp = Instance.new("UIPadding"); pp.PaddingLeft=UDim.new(0,12); pp.PaddingRight=UDim.new(0,12); pp.PaddingBottom=UDim.new(0,10); pp.PaddingTop=UDim.new(0,2); pp.Parent = panel
 	if subBuild then subBuild(panel) end
 
+	local hasSub = subBuild ~= nil
+	if not hasSub then arrow.Text = "" end  -- нет поднастроек -> нет стрелки
 	local expanded = false
 	local function togglePanel()
+		if not hasSub then return end
 		expanded = not expanded
 		panel.Visible = true
 		tween(arrow, 0.2, {Rotation = expanded and 90 or 0})
-		if not expanded then task.delay(0.05, function() if not expanded then panel.Visible=false end end) end
+		tween(arrow, 0.2, {TextColor3 = expanded and Theme.Accent or Theme.SubText})
+		if not expanded then task.delay(0.06, function() if not expanded then panel.Visible=false end end) end
 	end
-	-- ПКМ по шапке -> раскрыть поднастройки
-	for _, el in ipairs({head, arrow, lbl}) do
-		el.InputBegan:Connect(function(inp)
-			if inp.UserInputType == Enum.UserInputType.MouseButton2 then togglePanel() end
-		end)
-	end
+	-- клик по шапке (ЛКМ и ПКМ) раскрывает; свитч справа тоглит сам
+	head.MouseButton1Click:Connect(togglePanel)
+	head.MouseButton2Click:Connect(togglePanel)
+	head.MouseEnter:Connect(function() if hasSub then tween(wrap,0.12,{BackgroundColor3=Theme.SurfaceHl}) end end)
+	head.MouseLeave:Connect(function() tween(wrap,0.12,{BackgroundColor3=Theme.Surface}) end)
+	-- тултип-описание (если есть перевод tip_<key>)
+	attachTip(head, function()
+		local tk = "tip_"..key
+		local t = T(tk)
+		return (t ~= tk) and t or ""
+	end)
 	return { set = setSw }
 end
 
