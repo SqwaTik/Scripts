@@ -77,7 +77,7 @@ local L = {
 		trade_min="Принимать оффер от %", return_full="Возврат на базу при фулл весе",
 		-- sell
 		auto_sell="Авто-продажа", sell_with_car="Подгонять тачку", keep_fav="Не продавать избранное",
-		keep_trophy="Не продавать трофеи", sell_min="Мин. цена для продажи", sell_now="Продать сейчас",
+		keep_trophy="Не продавать трофеи", max_sell="Не продавать дороже", sell_now="Продать сейчас",
 		pawn_rate="Курс скупки", est_value="Оценка инвентаря",
 		-- process
 		auto_wash="Авто-мойка", auto_grade="Авто-оценка", auto_repair="Авто-ремонт",
@@ -132,7 +132,7 @@ local L = {
 		auto_stock="Auto stock shelves", auto_trade="Auto trade with customers",
 		trade_min="Accept offer from %", return_full="Return to base when full",
 		auto_sell="Auto Sell", sell_with_car="Bring vehicle", keep_fav="Keep favorited",
-		keep_trophy="Keep trophies", sell_min="Min price to sell", sell_now="Sell Now",
+		keep_trophy="Keep trophies", max_sell="Don't sell above", sell_now="Sell Now",
 		pawn_rate="Pawn Rate", est_value="Inventory Value",
 		auto_wash="Auto Wash", auto_grade="Auto Grade", auto_repair="Auto Repair",
 		wash_min="Wash from price", grade_min="Grade from price", source="Source",
@@ -183,7 +183,7 @@ local L = {
 		auto_stock="Auto surtir estantes", auto_trade="Auto comerciar con clientes",
 		trade_min="Aceptar oferta desde %", return_full="Volver a base si lleno",
 		auto_sell="Auto Venta", sell_with_car="Traer vehículo", keep_fav="Guardar favoritos",
-		keep_trophy="Guardar trofeos", sell_min="Precio mín. para vender", sell_now="Vender Ahora",
+		keep_trophy="Guardar trofeos", max_sell="No vender por encima de", sell_now="Vender Ahora",
 		pawn_rate="Tasa de empeño", est_value="Valor del inventario",
 		auto_wash="Auto Lavado", auto_grade="Auto Tasación", auto_repair="Auto Reparación",
 		wash_min="Lavar desde precio", grade_min="Tasar desde precio", source="Origen",
@@ -229,7 +229,7 @@ local Config = {
 	-- trade / shop management
 	autoStock = false, autoTrade = false, tradeMinPercent = 80, returnWhenFull = true,
 	-- sell
-	autoSell = false, sellWithCar = true, keepFav = true, keepTrophy = false, sellMin = 0,
+	autoSell = false, sellWithCar = true, keepFav = true, keepTrophy = false, maxSell = 0,
 	-- process
 	autoWash = false, autoGrade = false, autoRepair = false,
 	washMin = 100, gradeMin = 100, procSource = "Inventory",
@@ -423,14 +423,68 @@ end
 function API.spawnVehicle(guid)
 	local f = ev("Vehicles.RequestSpawn")
 	if not f then return false end
-	local g = guid
+	local g = guid or LocalPlayer:GetAttribute("EquippedVehicle")
 	if not g then
 		local v = API.getVehicles()
 		g = v.equippedGuid
 	end
 	if not g then return false end
-	pcall(function() f:FireServer(g) end)
+	pcall(function() f:FireServer(g) end)  -- у сервера кулдаун ~6с; не спамить
 	return true
+end
+
+-- найти заспавненную тачку игрока в мире (по владельцу/GUID)
+function API.findMyVehicle()
+	local myId = LocalPlayer.UserId
+	local guid = LocalPlayer:GetAttribute("EquippedVehicle")
+	for _, d in ipairs(Workspace:GetDescendants()) do
+		if d:IsA("Model") and d:FindFirstChildWhichIsA("VehicleSeat") then
+			if d:GetAttribute("OwnerUserId") == myId or (guid and d:GetAttribute("VehicleGUID") == guid) then
+				return d
+			end
+		end
+	end
+	return nil
+end
+
+-- вес груза тачки: возвращает (текущий, лимит, заполнено?)
+function API.vehicleCargo()
+	local v = API.findMyVehicle()
+	if not v then return 0, 0, false end
+	local w = v:GetAttribute("CargoWeight") or 0
+	local cap = v:GetAttribute("CargoWeightLimit") or 0
+	return w, cap, (cap > 0 and w >= cap)
+end
+
+-- гарантировать наличие тачки рядом (спавн только если её нет; уважает кулдаун)
+local _lastSpawnTry = 0
+function API.ensureVehicle()
+	local v = API.findMyVehicle()
+	if v then return v end
+	if os.clock() - _lastSpawnTry > 6 then  -- кулдаун спавна
+		_lastSpawnTry = os.clock()
+		API.spawnVehicle()
+		task.wait(2)
+		v = API.findMyVehicle()
+	end
+	return v
+end
+
+-- выгрузить тачку в инвентарь; при переполнении инвентаря и опции — продать у НПС
+-- (объявлено здесь, до автобида, т.к. используется и им, и сборщиком)
+local function unloadVehicleSmart(sellWhenFull)
+	API.transferVehicleItems(); task.wait(1.2)
+	local cnt = LocalPlayer:GetAttribute("InventoryCount") or 0
+	local cap = LocalPlayer:GetAttribute("InventoryCap") or 999
+	if sellWhenFull and cnt >= cap then
+		if _G.__VH_sellNow then _G.__VH_sellNow() end; task.wait(2)
+	end
+end
+-- подогнать тачку вплотную к точке (чтобы сработал промпт "Add to Vehicle")
+local function nudgeVehicleTo(pos)
+	local v = API.findMyVehicle()
+	if v then pcall(function() v:PivotTo(CFrame.new(pos + Vector3.new(5, 3, 0))) end); return true end
+	return false
 end
 
 -- универсальные обёртки обработки (Wash/Grading/Repair/Locksmith)
@@ -571,17 +625,17 @@ end
 -- THEME
 ---------------------------------------------------------------------
 local Theme = {
-	Bg        = Color3.fromRGB(15, 16, 22),
-	Panel     = Color3.fromRGB(22, 24, 32),
-	Surface   = Color3.fromRGB(30, 33, 44),
-	SurfaceHl = Color3.fromRGB(40, 44, 58),
-	Stroke    = Color3.fromRGB(48, 52, 68),
-	Accent    = Color3.fromRGB(120, 110, 255),
-	Accent2   = Color3.fromRGB(90, 200, 255),
-	Success   = Color3.fromRGB(70, 220, 140),
-	Danger    = Color3.fromRGB(255, 90, 110),
-	Text      = Color3.fromRGB(235, 238, 250),
-	SubText   = Color3.fromRGB(140, 146, 168),
+	Bg        = Color3.fromRGB(12, 13, 18),
+	Panel     = Color3.fromRGB(18, 20, 28),
+	Surface   = Color3.fromRGB(27, 30, 40),
+	SurfaceHl = Color3.fromRGB(38, 42, 56),
+	Stroke    = Color3.fromRGB(44, 48, 64),
+	Accent    = Color3.fromRGB(124, 108, 255),
+	Accent2   = Color3.fromRGB(80, 196, 255),
+	Success   = Color3.fromRGB(64, 222, 142),
+	Danger    = Color3.fromRGB(255, 96, 112),
+	Text      = Color3.fromRGB(238, 240, 250),
+	SubText   = Color3.fromRGB(138, 145, 168),
 }
 
 local ICON = {
@@ -752,8 +806,35 @@ Main.BorderSizePixel = 0
 Main.ClipsDescendants = true
 Main.Visible = false
 Main.Parent = ScreenGui
-corner(Main, 14)
-stroke(Main, Theme.Stroke, 1, 0.2)
+corner(Main, 16)
+stroke(Main, Theme.Stroke, 1, 0.15)
+-- мягкая тень под окном (отдельный слой за Main, не обрезается)
+do
+	local shadow = Instance.new("ImageLabel")
+	shadow.Name = "MainShadow"
+	shadow.Image = "rbxassetid://6014261993"
+	shadow.ImageColor3 = Color3.new(0,0,0)
+	shadow.ImageTransparency = 0.4
+	shadow.ScaleType = Enum.ScaleType.Slice
+	shadow.SliceCenter = Rect.new(49, 49, 450, 450)
+	shadow.Size = UDim2.fromOffset(640 + 70, 440 + 70)
+	shadow.Position = UDim2.fromScale(0.5, 0.5)
+	shadow.AnchorPoint = Vector2.new(0.5, 0.5)
+	shadow.BackgroundTransparency = 1
+	shadow.ZIndex = 0
+	shadow.Parent = ScreenGui
+	-- держим тень под центром окна
+	Main:GetPropertyChangedSignal("Position"):Connect(function() shadow.Position = Main.Position end)
+	Main:GetPropertyChangedSignal("Visible"):Connect(function() shadow.Visible = Main.Visible end)
+	shadow.Visible = false
+end
+-- лёгкий вертикальный градиент фона для глубины
+do
+	local mg = Instance.new("UIGradient")
+	mg.Color = ColorSequence.new(Color3.fromRGB(20, 22, 30), Theme.Bg)
+	mg.Rotation = 90
+	mg.Parent = Main
+end
 
 -- drag
 do
@@ -881,16 +962,16 @@ do
 	corner(l2, 1)
 end
 
--- кнопка смены языка — только значок глобуса, клик выдвигает выбор
+-- кнопка смены языка — показывает текущий код языка (RU/EN/ES), клик выдвигает выбор
 local langBtn = Instance.new("TextButton")
-langBtn.Size = UDim2.fromOffset(30, 30)
+langBtn.Size = UDim2.fromOffset(34, 30)
 langBtn.Position = UDim2.new(1, -78, 0.5, 0)
 langBtn.AnchorPoint = Vector2.new(0, 0.5)
 langBtn.BackgroundColor3 = Theme.Surface
 langBtn.AutoButtonColor = false
-langBtn.Text = "🌐"
+langBtn.Text = Locale:upper()
 langBtn.Font = Enum.Font.GothamBold
-langBtn.TextSize = 15
+langBtn.TextSize = 12
 langBtn.TextColor3 = Theme.Accent2
 langBtn.Parent = topBar
 corner(langBtn, 8)
@@ -910,7 +991,7 @@ end
 
 -- меню языка поверх ВСЕГО (parent Main, максимальный ZIndex)
 local langMenu = Instance.new("Frame")
-langMenu.Size = UDim2.fromOffset(88, 0)
+langMenu.Size = UDim2.fromOffset(150, 0)
 langMenu.AutomaticSize = Enum.AutomaticSize.Y
 langMenu.Position = UDim2.new(1, -12, 0, 50)
 langMenu.AnchorPoint = Vector2.new(1, 0)  -- правый край у границы окна, не вылезает вправо
@@ -921,14 +1002,14 @@ langMenu.Parent = Main
 corner(langMenu, 8); stroke(langMenu, Theme.Stroke, 1, 0)
 local lmp = Instance.new("UIPadding"); lmp.PaddingTop=UDim.new(0,4);lmp.PaddingBottom=UDim.new(0,4);lmp.PaddingLeft=UDim.new(0,4);lmp.PaddingRight=UDim.new(0,4); lmp.Parent=langMenu
 local lml = Instance.new("UIListLayout"); lml.Padding=UDim.new(0,2); lml.Parent=langMenu
-local LANG_FLAG = { ru="🇷🇺", en="🇬🇧", es="🇪🇸" }
+local LANG_NAME = { ru="Русский", en="English", es="Español" }
 for _, lang in ipairs({"ru","en","es"}) do
 	local o = Instance.new("TextButton")
-	o.Size = UDim2.new(1,0,0,26); o.BackgroundColor3 = Theme.SurfaceHl; o.AutoButtonColor=false
+	o.Size = UDim2.new(1,0,0,28); o.BackgroundColor3 = Theme.SurfaceHl; o.AutoButtonColor=false
 	o.Font = Enum.Font.GothamBold; o.TextSize=12; o.TextColor3=Theme.Text
-	o.Text = (LANG_FLAG[lang] or "").."  "..lang:upper()  -- флаг сначала, потом код
+	o.Text = lang:upper().."  ·  "..(LANG_NAME[lang] or lang)  -- код + название, без emoji-флагов (tofu)
 	o.TextXAlignment = Enum.TextXAlignment.Left
-	local op = Instance.new("UIPadding"); op.PaddingLeft=UDim.new(0,8); op.Parent=o
+	local op = Instance.new("UIPadding"); op.PaddingLeft=UDim.new(0,10); op.Parent=o
 	o.ZIndex = 5001; o.Parent = langMenu; corner(o,5)
 	o.MouseEnter:Connect(function() tween(o,0.1,{BackgroundColor3=Theme.Accent}) end)
 	o.MouseLeave:Connect(function() tween(o,0.1,{BackgroundColor3=Theme.SurfaceHl}) end)
@@ -1208,9 +1289,9 @@ function Comp.toggle(parent, text, key, callback)
 end
 
 function Comp.slider(parent, text, key, min, max, step, suffix, callback)
-	local r = rowBase(parent, 48)
+	local r = rowBase(parent, 50)
 	local lbl = Instance.new("TextLabel")
-	lbl.Size = UDim2.new(1, -70, 0, 20)
+	lbl.Size = UDim2.new(1, -96, 0, 20)
 	lbl.BackgroundTransparency = 1
 	lbl.Text = text
 	lbl.Font = Enum.Font.GothamMedium
@@ -1219,31 +1300,54 @@ function Comp.slider(parent, text, key, min, max, step, suffix, callback)
 	lbl.TextXAlignment = Enum.TextXAlignment.Left
 	lbl.Parent = r
 
-	local valBox = Instance.new("TextLabel")
-	valBox.Size = UDim2.new(0, 70, 0, 20)
-	valBox.Position = UDim2.new(1, -70, 0, 0)
-	valBox.BackgroundTransparency = 1
+	-- значение = TextBox: клик -> ввод числа вручную
+	local valBox = Instance.new("TextBox")
+	valBox.Size = UDim2.new(0, 92, 0, 22)
+	valBox.Position = UDim2.new(1, -92, 0, -1)
+	valBox.BackgroundColor3 = Theme.Surface
+	valBox.BackgroundTransparency = 0.25
 	valBox.Font = Enum.Font.GothamBold
 	valBox.TextSize = 13
 	valBox.TextColor3 = Theme.Accent2
 	valBox.TextXAlignment = Enum.TextXAlignment.Right
+	valBox.ClearTextOnFocus = false
 	valBox.Parent = r
+	corner(valBox, 6); stroke(valBox, Theme.Stroke, 1, 0.4)
+	local vbp = Instance.new("UIPadding"); vbp.PaddingRight=UDim.new(0,8); vbp.PaddingLeft=UDim.new(0,6); vbp.Parent=valBox
 
+	-- стеклянный трек
 	local track = Instance.new("Frame")
-	track.Size = UDim2.new(1, 0, 0, 6)
-	track.Position = UDim2.new(0, 0, 0, 32)
+	track.Size = UDim2.new(1, 0, 0, 8)
+	track.Position = UDim2.new(0, 0, 0, 34)
 	track.BackgroundColor3 = Theme.Surface
+	track.BackgroundTransparency = 0.25
 	track.BorderSizePixel = 0
 	track.Parent = r
-	corner(track, 3)
+	corner(track, 4); stroke(track, Theme.Stroke, 1, 0.4)
 
 	local fill = Instance.new("Frame")
 	fill.Size = UDim2.new(0, 0, 1, 0)
 	fill.BackgroundColor3 = Theme.Accent
 	fill.BorderSizePixel = 0
 	fill.Parent = track
-	corner(fill, 3)
+	corner(fill, 4)
 	local g = Instance.new("UIGradient"); g.Color = ColorSequence.new(Theme.Accent, Theme.Accent2); g.Parent = fill
+	-- блик стекла сверху
+	local gloss = Instance.new("Frame")
+	gloss.Size = UDim2.new(1, 0, 0.45, 0); gloss.Position = UDim2.new(0,0,0,0)
+	gloss.BackgroundColor3 = Color3.new(1,1,1); gloss.BackgroundTransparency = 0.75; gloss.BorderSizePixel = 0
+	gloss.Parent = track; corner(gloss, 4)
+
+	-- бегунок-ручка (легко схватить)
+	local knob = Instance.new("Frame")
+	knob.Size = UDim2.fromOffset(16, 16)
+	knob.AnchorPoint = Vector2.new(0.5, 0.5)
+	knob.Position = UDim2.new(0, 0, 0.5, 0)
+	knob.BackgroundColor3 = Color3.new(1,1,1)
+	knob.BorderSizePixel = 0
+	knob.ZIndex = 3
+	knob.Parent = track
+	corner(knob, 8); stroke(knob, Theme.Accent, 2, 0)
 
 	local function fmt(v)
 		if step < 1 then return string.format("%.2f%s", v, suffix or "") end
@@ -1251,26 +1355,44 @@ function Comp.slider(parent, text, key, min, max, step, suffix, callback)
 	end
 	local function set(v, fire)
 		v = math.clamp(v, min, max)
-		if step >= 1 then v = math.floor(v/step + 0.5)*step end
+		if step >= 1 then v = math.floor(v/step + 0.5)*step
+		else v = math.floor(v/step + 0.5)*step end
 		Config[key] = v
-		local a = (v - min)/(max - min)
-		tween(fill, 0.1, {Size = UDim2.new(a, 0, 1, 0)})
-		valBox.Text = fmt(v)
+		local a = (max>min) and (v - min)/(max - min) or 0
+		tween(fill, 0.08, {Size = UDim2.new(a, 0, 1, 0)})
+		tween(knob, 0.08, {Position = UDim2.new(a, 0, 0.5, 0)})
+		if not valBox:IsFocused() then valBox.Text = fmt(v) end
 		if fire and callback then task.spawn(callback, v) end
 	end
+
+	-- увеличенная зона захвата (выше трека)
+	local hit = Instance.new("TextButton")
+	hit.Size = UDim2.new(1, 0, 0, 24)
+	hit.Position = UDim2.new(0, 0, 0, 26)
+	hit.BackgroundTransparency = 1
+	hit.Text = ""
+	hit.Parent = r
 
 	local dragging = false
 	local function upd(inp)
 		local a = math.clamp((inp.Position.X - track.AbsolutePosition.X)/track.AbsoluteSize.X, 0, 1)
 		set(min + a*(max-min), true)
 	end
-	track.InputBegan:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 then dragging=true; upd(i) end end)
+	hit.InputBegan:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 then dragging=true; upd(i) end end)
 	UserInputService.InputEnded:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 then if dragging then dragging=false; saveConfig() end end end)
 	UserInputService.InputChanged:Connect(function(i) if dragging and i.UserInputType==Enum.UserInputType.MouseMovement then upd(i) end end)
+
+	-- ручной ввод числа
+	valBox.Focused:Connect(function() valBox.Text = tostring(Config[key] or min) end)
+	valBox.FocusLost:Connect(function()
+		local n = tonumber((valBox.Text:gsub("[^%d%.%-]", "")))
+		if n then set(n, true); saveConfig() else valBox.Text = fmt(Config[key] or min) end
+	end)
+
 	set(Config[key] or min, false)
-	-- анимация наведения
-	track.MouseEnter:Connect(function() tween(track,0.12,{Size=UDim2.new(1,0,0,9)}); tween(valBox,0.12,{TextColor3=Theme.Accent}) end)
-	track.MouseLeave:Connect(function() tween(track,0.12,{Size=UDim2.new(1,0,0,6)}); tween(valBox,0.12,{TextColor3=Theme.Accent2}) end)
+	-- hover: подсветка
+	hit.MouseEnter:Connect(function() tween(track,0.12,{Size=UDim2.new(1,0,0,10)}); tween(knob,0.12,{Size=UDim2.fromOffset(18,18)}) end)
+	hit.MouseLeave:Connect(function() tween(track,0.12,{Size=UDim2.new(1,0,0,8)}); tween(knob,0.12,{Size=UDim2.fromOffset(16,16)}) end)
 	return { set = set, label = lbl }
 end
 
@@ -1288,8 +1410,9 @@ function Comp.button(parent, text, color, callback)
 	b.MouseEnter:Connect(function() tween(b,0.15,{BackgroundColor3=(color or Theme.Accent):Lerp(Color3.new(1,1,1),0.12)}) end)
 	b.MouseLeave:Connect(function() tween(b,0.15,{BackgroundColor3=color or Theme.Accent}) end)
 	b.MouseButton1Click:Connect(function()
-		tween(b,0.08,{Size=UDim2.new(1,-6,0,34)}):Wait()
-		tween(b,0.08,{Size=UDim2.new(1,0,0,36)})
+		-- press-эффект без :Wait() (раньше кнопка залипала сжатой), размер всегда восстанавливается
+		tween(b, 0.07, {Size = UDim2.new(1, -8, 0, 33)})
+		task.delay(0.08, function() tween(b, 0.12, {Size = UDim2.new(1, 0, 0, 36)}) end)
 		if callback then task.spawn(callback) end
 	end)
 	return b
@@ -1580,19 +1703,18 @@ local farmSec = Comp.section(farmPage, nil)
 -- автобид (свёрнут, ПКМ -> поднастройки)
 Comp.module(farmSec, T("auto_bid"), "autoBid", function(p)
 	Comp.dropdown(p, T("bid_area"), "bidArea", areaNames)
-	Comp.slider(p, T("min_bid"), "minBid", 0, 50000, 25, "$")
-	Comp.slider(p, T("max_bid"), "maxBid", 0, 100000, 50, "$")
+	Comp.slider(p, T("min_bid"), "minBid", 0, 50000, 1000, "$")
+	Comp.slider(p, T("max_bid"), "maxBid", 0, 100000, 2500, "$")
 	Comp.slider(p, T("bid_speed"), "bidSpeed", 0.1, 1.5, 0.05, "s")
 	Comp.toggle(p, T("bid_new"), "bidNew")
 	Comp.toggle(p, T("kill_npc"), "killNpc")
 	Comp.toggle(p, T("auto_buyitems"), "autoBuyItems")
-	Comp.slider(p, T("profit_min"), "profitMin", 0, 100, 5, "%")
+	Comp.slider(p, T("profit_min"), "profitMin", 0, 100, 10, "%")
 	Comp.toggle(p, T("keep_safes"), "keepSafes")
 end)
 Comp.module(farmSec, T("auto_fish"), "autoFish", function(p)
 	Comp.toggle(p, T("fish_broken_sell"), "fishBrokenSell")
 end)
-Comp.module(farmSec, T("auto_collect"), "autoCollectAll", nil)
 Comp.module(farmSec, T("auto_collect_lost"), "autoCollectLost", function(p)
 	Comp.toggle(p, T("lost_sell"), "lostSell")
 end)
@@ -1605,12 +1727,14 @@ Comp.module(sellSec, T("auto_sell"), "autoSell", function(p)
 	Comp.toggle(p, T("keep_trophy"), "keepTrophy")
 	Comp.toggle(p, T("keep_safes"), "keepSafes")
 	Comp.toggle(p, T("keep_rods"), "keepRods")
-	Comp.slider(p, T("sell_min"), "sellMin", 0, 50000, 25, "$")
+	Comp.slider(p, T("max_sell"), "maxSell", 0, 100000, 2500, "$")  -- не продавать дороже X (0 = без лимита)
 end)
 Comp.module(sellSec, T("auto_stock"), "autoStock", function(p)
 	Comp.toggle(p, T("return_full"), "returnWhenFull")
 	Comp.toggle(p, T("auto_trade"), "autoTrade")
-	Comp.slider(p, T("trade_min"), "tradeMinPercent", 0, 100, 5, "%")
+	Comp.toggle(p, T("keep_trophy"), "keepTrophy")
+	Comp.toggle(p, T("keep_rods"), "keepRods")
+	Comp.slider(p, T("trade_min"), "tradeMinPercent", 0, 100, 10, "%")
 end)
 Comp.button(sellSec, T("sell_now"), Theme.Success, function() _G.__VH_sellNow() end)
 
@@ -1631,14 +1755,13 @@ end)
 -- =========== PROCESS ===========
 local procSec = Comp.section(processPage, nil)
 Comp.module(procSec, T("auto_wash"), "autoWash", function(p)
-	Comp.slider(p, T("wash_min"), "washMin", 0, 50000, 25, "$")
+	Comp.slider(p, T("wash_min"), "washMin", 0, 50000, 1000, "$")
 end)
 Comp.module(procSec, T("auto_grade"), "autoGrade", function(p)
-	Comp.slider(p, T("grade_min"), "gradeMin", 0, 50000, 25, "$")
+	Comp.slider(p, T("grade_min"), "gradeMin", 0, 50000, 1000, "$")
 end)
 Comp.module(procSec, T("auto_repair"), "autoRepair", nil)
-local srcSec = Comp.section(processPage, T("source"))
-Comp.dropdown(srcSec, T("source"), "procSource", {"Inventory", "Vehicle"})
+-- «Источник» убран: обработка всегда берёт из инвентаря
 
 -- =========== SHOP ===========
 local drinkSec = Comp.section(shopPage, nil)
@@ -1685,10 +1808,10 @@ end)
 -- =========== OTHER ===========
 local moveSec = Comp.section(otherPage, T("tab_other"))
 Comp.module(moveSec, T("fly"), "fly", function(p)
-	Comp.slider(p, T("fly_speed"), "flySpeed", 16, 250, 2)
+	Comp.slider(p, T("fly_speed"), "flySpeed", 16, 250, 10)
 end, function(v) _G.__VH_setFly(v) end)
-Comp.slider(moveSec, T("walkspeed"), "walkSpeed", 16, 200, 2, "", function(v) _G.__VH_setWalk(v) end)
-Comp.slider(moveSec, T("jumppower"), "jumpPower", 50, 350, 5, "", function(v) _G.__VH_setJump(v) end)
+Comp.slider(moveSec, T("walkspeed"), "walkSpeed", 16, 200, 8, "", function(v) _G.__VH_setWalk(v) end)
+Comp.slider(moveSec, T("jumppower"), "jumpPower", 50, 350, 25, "", function(v) _G.__VH_setJump(v) end)
 Comp.toggle(moveSec, T("noclip"), "noclip", function(v) _G.__VH_setNoclip(v) end)
 Comp.toggle(moveSec, T("inf_jump"), "infJump")
 Comp.toggle(moveSec, T("anti_afk"), "antiAfk")
@@ -1779,7 +1902,7 @@ function _G.__VH_sellNow()
 		if Config.keepTrophy and e.IsTrophy then skip = true end
 		if Config.keepSafes and isSafe then skip = true end
 		if Config.keepRods and isRod then skip = true end
-		if price < (Config.sellMin or 0) then skip = true end
+		if (Config.maxSell or 0) > 0 and price > Config.maxSell then skip = true end  -- не продавать дороже X
 		if not skip then table.insert(list, {guid=guid, price=price}) end
 	end
 	table.sort(list, function(a,b) return a.price > b.price end) -- дорогие первыми
@@ -1877,11 +2000,15 @@ task.spawn(function()
 			if Config.autoRepair then autoProcess("Repair", 0) end
 			if Config.autoTrade then ensureTradeStaff() end
 			if Config.autoBuyDrink then
-				local cat = API.energyCatalog()
-				if cat.Drinks then
-					for _, d in ipairs(cat.Drinks) do
-						if d.EnergyDrinkId == Config.drinkTier and (d.StockRemaining or 0) > 0 then
-							API.buyDrink(Config.drinkTier)
+				-- не покупаем, если зелье этого уровня уже активно (ActiveLuckDrinkExpireAt_<tier> в будущем)
+				local expireAt = LocalPlayer:GetAttribute("ActiveLuckDrinkExpireAt_"..tostring(Config.drinkTier)) or 0
+				if expireAt <= os.time() then
+					local cat = API.energyCatalog()
+					if cat.Drinks then
+						for _, d in ipairs(cat.Drinks) do
+							if d.EnergyDrinkId == Config.drinkTier and (d.StockRemaining or 0) > 0 then
+								API.buyDrink(Config.drinkTier)
+							end
 						end
 					end
 				end
@@ -1895,6 +2022,7 @@ end)
 local biddingActive = false
 local areaActive = false   -- ToggleAuctionArea: аукцион реально идёт (приходит ~0.1с после старта)
 local currentBid = 0
+local autoHitEnabled = false  -- бьём по бар-полосе ТОЛЬКО на одобренном аукционе (не на дешёвых/чужих)
 do
 	local toggleArea = ev("Auction.ToggleAuctionArea")
 	local toggleUI = ev("Auction.ToggleBiddingUI")
@@ -1938,11 +2066,12 @@ end
 -- бид строго когда курсор внутри зоны (любой редкости/скорости) -> промахов нет -> нет кд
 local lastHit = 0
 RunService.Heartbeat:Connect(function()
-	if not Config.autoBid then return end
+	if not (Config.autoBid and autoHitEnabled) then return end  -- бьём только на одобренном лоте
 	local ui = PlayerGui:FindFirstChild("UIControllerGui")
 	local cont = ui and ui:FindFirstChild("AuctionBiddingContainer")
 	if not (cont and cont.Visible) then return end
 	if Config.maxBid > 0 and currentBid >= Config.maxBid then return end
+	if Config.minBid > 0 and currentBid > 0 and currentBid < Config.minBid then return end  -- дешёвый лот — не бьём
 	-- умно: не бидим выше своих наличных (капитал не позволяет)
 	local cash = LocalPlayer:GetAttribute("Cash") or 0
 	if currentBid > 0 and currentBid >= cash then return end
@@ -2031,6 +2160,7 @@ local function doGarageAuction(g)
 		if myNetWorth < garageCfg.MinNetWorth then return end  -- допуск по капиталу не пройден
 	end
 
+	autoHitEnabled = false  -- пока лот не одобрен — НЕ бьём по бару
 	hrp.CFrame = CFrame.new(g.part.Position + Vector3.new(0, 3, 0))
 	task.wait(0.35)
 	biddingActive = false
@@ -2043,53 +2173,51 @@ local function doGarageAuction(g)
 	repeat task.wait(0.08) until areaActive or (os.clock()-t0) > 2 or not Config.autoBid
 	if not areaActive then task.wait(0.2); return end
 
-	-- теперь ждём старт торгов (ToggleBiddingUI приходит через ~6с после area, но может быть кинематика)
+	-- ждём старт торгов И появление реальной ставки (>0), чтобы решение по minBid было верным
 	t0 = os.clock()
-	repeat task.wait(0.12) until biddingActive or (os.clock()-t0) > 10 or not Config.autoBid
-	if not biddingActive then API.leaveAuction(); task.wait(0.3); return end
-	task.wait(0.3)
+	repeat task.wait(0.12) until (biddingActive and currentBid > 0) or (os.clock()-t0) > 12 or (not areaActive) or not Config.autoBid
+	if not biddingActive then autoHitEnabled = false; API.leaveAuction(); task.wait(0.4); return end
 
-	-- скип дешёвого лота по начальной ставке (если не "новый")
-	local skipCheap = false
-	if Config.minBid > 0 and currentBid > 0 and currentBid < Config.minBid then
-		skipCheap = true
-		-- "выкупать новые": если предмет ещё не открыт в коллекции — не скипать (берём даже дешёвый)
-		if Config.bidNew then
-			local itemId
-			for _, m in ipairs(g.model:GetDescendants()) do
-				itemId = m:GetAttribute("ItemId")
-				if itemId then break end
-			end
-			if itemId and isItemNew(itemId) then skipCheap = false end
-		end
+	-- решаем: дешёвый лот (ниже minBid)?
+	local skipCheap = (Config.minBid > 0 and currentBid > 0 and currentBid < Config.minBid)
+	if skipCheap and Config.bidNew then
+		-- "выкупать новые": если предмет не открыт в коллекции — не скипать даже дешёвый
+		local itemId
+		for _, m in ipairs(g.model:GetDescendants()) do itemId = m:GetAttribute("ItemId"); if itemId then break end end
+		if itemId and isItemNew(itemId) then skipCheap = false end
 	end
-	if skipCheap then API.leaveAuction(); task.wait(0.3); return end
-
-	-- умно: если начальная ставка уже выше наличных — контейнер не по карману, уходим
 	local cash = LocalPlayer:GetAttribute("Cash") or 0
-	if currentBid > 0 and currentBid >= cash then
-		API.leaveAuction(); task.wait(0.3); return
+	local tooExpensive = (currentBid > 0 and currentBid >= cash)
+	if skipCheap or tooExpensive then
+		autoHitEnabled = false
+		API.leaveAuction(); task.wait(0.5)  -- ВЫХОДИМ из лота полностью, не играем
+		return
 	end
 
-	-- Kill NPC: убираем конкурентов, чтобы не перебивали (лимит киков на аукцион учитывается сервером)
-	if Config.killNpc then
-		task.spawn(function() kickAuctionNPCs(g.model) end)
-	end
+	-- лот одобрен -> включаем авто-хит и (если надо) кикаем 1 NPC
+	autoHitEnabled = true
+	if Config.killNpc then task.spawn(function() kickAuctionNPCs(g.model) end) end
 
-	-- СТОИМ на гараже и ждём конца торгов; авто-хит (Heartbeat) сам бидит в зоне
+	-- стоим на гараже до конца торгов; во время — следим за лимитами
 	local bt = os.clock()
 	repeat
-		-- держим персонажа на месте, чтобы не выпасть из зоны (скилл-чек не пропал)
 		if hrp and (hrp.Position - (g.part.Position + Vector3.new(0,3,0))).Magnitude > 6 then
 			hrp.CFrame = CFrame.new(g.part.Position + Vector3.new(0, 3, 0))
 		end
+		-- если ставка превысила макс/наличные — прекращаем бить (но лот доигрываем)
+		if (Config.maxBid > 0 and currentBid >= Config.maxBid) or (currentBid >= (LocalPlayer:GetAttribute("Cash") or 0)) then
+			autoHitEnabled = false
+		end
 		task.wait(0.2)
-	until (not areaActive) or (not Config.autoBid) or (os.clock()-bt) > 35
+	until (not areaActive) or (not Config.autoBid) or (os.clock()-bt) > 40
+	autoHitEnabled = false
 	task.wait(0.6)
-	-- забрать выигранные предметы из гаража (нужна тачка рядом — подгоним)
-	pcall(function() API.spawnVehicle() end)
-	task.wait(0.5)
+	-- забрать выигранное; если тачки нет рядом — подогнать (спавн с учётом кулдауна)
+	API.ensureVehicle()
 	collectWonItems(g.model)
+	-- если тачка переполнилась — отвезти/продать (выигранное часто валится в ящик забытых вещей)
+	local _, _, full = API.vehicleCargo()
+	if full then unloadVehicleSmart(true) end
 end
 
 task.spawn(function()
@@ -2218,46 +2346,15 @@ task.spawn(function()
 end)
 
 -- ========== АВТО-СБОР LOST & FOUND (умный: тачка рядом, вес/выгрузка/продажа) ==========
+-- (unloadVehicleSmart и nudgeVehicleTo объявлены выше, рядом с API-хелперами тачки)
 do
-	local failCount = {}  -- [item]=неудачные попытки (чтобы не зацикливаться на нерабочем)
-
-	local function findLostFolder()
-		return Workspace:FindFirstChild("_LostItems", true)
-	end
-	local function findMyVehicle()
-		local guid = LocalPlayer:GetAttribute("EquippedVehicle")
-		if not guid then return nil end
-		for _, d in ipairs(Workspace:GetDescendants()) do
-			if d:IsA("Model") and d:GetAttribute("GUID") == guid then return d end
-		end
-		return nil
-	end
-	local function moveVehicleNear(pos)
-		local v = findMyVehicle()
-		if v then pcall(function() v:PivotTo(CFrame.new(pos + Vector3.new(5, 3, 0))) end); return true end
-		return false
-	end
-	local function inventoryFull()
-		local cnt = LocalPlayer:GetAttribute("InventoryCount") or 0
-		local cap = LocalPlayer:GetAttribute("InventoryCap") or 999
-		return cnt >= cap
-	end
-	local function vehicleFull()
-		return (vehMaxWeight and vehMaxWeight > 0) and (vehWeight >= vehMaxWeight * 0.95)
-	end
-	-- выгрузить тачку в инвентарь; если инвентарь полон и разрешена продажа — продать
-	local function unloadOrSell()
-		API.transferVehicleItems(); task.wait(1.2)
-		if Config.lostSell and inventoryFull() then
-			_G.__VH_sellNow(); task.wait(2)
-		end
-	end
+	local failCount = {}  -- [item]=неудачные попытки
 
 	task.spawn(function()
 		while ScreenGui.Parent do
 			if not Config.autoCollectLost then task.wait(1.5); continue end
 			local hrp = getHRP()
-			local folder = findLostFolder()
+			local folder = Workspace:FindFirstChild("_LostItems", true)
 			if not (hrp and folder) then task.wait(3); continue end
 			-- только НАШИ предметы (Owner == наш UserId), у которых ещё не исчерпан лимит попыток
 			local mine = {}
@@ -2269,14 +2366,16 @@ do
 				end
 			end
 			if #mine == 0 then task.wait(4); continue end
-			pcall(function() API.spawnVehicle() end); task.wait(1)
+			API.ensureVehicle()  -- спавним тачку ОДИН раз (с учётом кулдауна), не спамим
 			local consecFails = 0
 			for _, item in ipairs(mine) do
 				if not Config.autoCollectLost then break end
-				if item.Parent then  -- ещё не собран
-					-- переполнение тачки/инвентаря ИЛИ подряд неудачи (тачка полна) -> выгрузить/продать
-					if vehicleFull() or inventoryFull() or consecFails >= 3 then
-						unloadOrSell(); consecFails = 0
+				if item.Parent then
+					-- переполнение тачки/инвентаря ИЛИ подряд неудачи -> выгрузить/продать
+					local _, _, full = API.vehicleCargo()
+					if full or consecFails >= 3 then
+						unloadVehicleSmart(Config.lostSell); consecFails = 0
+						API.ensureVehicle()
 					end
 					local prompt
 					for _, d in ipairs(item:GetDescendants()) do
@@ -2286,11 +2385,11 @@ do
 					if prompt and part then
 						hrp.CFrame = CFrame.new(part.Position + Vector3.new(0, 2, 0))
 						task.wait(0.35)
-						moveVehicleNear(part.Position)  -- подгоняем тачку вплотную
-						task.wait(0.4)
+						nudgeVehicleTo(part.Position)  -- подгоняем тачку вплотную
+						task.wait(0.45)
 						pcall(function() fireproximityprompt(prompt) end)
 						task.wait(0.55)
-						if item.Parent then  -- не собрался
+						if item.Parent then
 							failCount[item] = (failCount[item] or 0) + 1
 							consecFails = consecFails + 1
 						else
@@ -2556,21 +2655,24 @@ do
 	searchBox.ClearTextOnFocus = false
 	searchBox.Parent = topBar
 	corner(searchBox, 8); stroke(searchBox, Theme.Stroke, 1, 0.3)
-	local sbp = Instance.new("UIPadding"); sbp.PaddingLeft=UDim.new(0,28); sbp.PaddingRight=UDim.new(0,8); sbp.Parent=searchBox
+	local sbp = Instance.new("UIPadding"); sbp.PaddingLeft=UDim.new(0,26); sbp.PaddingRight=UDim.new(0,8); sbp.Parent=searchBox
+		-- ВЕКТОРНАЯ ЛУПА в topBar (НЕ внутри searchBox, иначе UIPadding её сдвигает на текст)
 		local lens = Instance.new("Frame")
-		lens.Size = UDim2.fromOffset(11, 11)
-		lens.Position = UDim2.new(0, 9, 0.5, 0)
+		lens.Size = UDim2.fromOffset(10, 10)
+		lens.Position = UDim2.new(1, -236 + 9, 0.5, -1)  -- у левого края поля
 		lens.AnchorPoint = Vector2.new(0, 0.5)
 		lens.BackgroundTransparency = 1
-		lens.Parent = searchBox
-		stroke(lens, Theme.SubText, 1.5, 0); corner(lens, 6)
+		lens.ZIndex = 3
+		lens.Parent = topBar
+		stroke(lens, Theme.SubText, 1.5, 0); corner(lens, 5)
 		local handle = Instance.new("Frame")
-		handle.Size = UDim2.fromOffset(5, 1.5)
+		handle.Size = UDim2.fromOffset(4, 1.5)
 		handle.AnchorPoint = Vector2.new(0, 0.5)
-		handle.Position = UDim2.new(1, -1, 1, -1)
+		handle.Position = UDim2.new(1, 0, 1, 0)
 		handle.Rotation = 45
 		handle.BackgroundColor3 = Theme.SubText
 		handle.BorderSizePixel = 0
+		handle.ZIndex = 3
 		handle.Parent = lens
 
 	-- текст искомого элемента: кнопка -> её текст; иначе первый осмысленный TextLabel (слева)
@@ -2703,7 +2805,7 @@ do
 			pred.Visible = (Config.predictEnable ~= false)
 			if pred.Visible then
 				local anyShown = false
-				ptitle.Text = "⏳ "..T("predictions")
+				ptitle.Text = T("predictions")
 				for _, name in ipairs(eventNames) do
 					local row = rows[name]
 					local startTs
@@ -2715,7 +2817,7 @@ do
 							local left = math.floor(n - os.time())
 							row.Visible = true; anyShown = true
 							if left <= 0 then
-								row.Text = "🟢 "..name..": "..T("ev_active"); row.TextColor3 = Theme.Success
+								row.Text = "● "..name..": "..T("ev_active"); row.TextColor3 = Theme.Success
 							else
 								row.Text = string.format("%s: %d:%02d", name, math.floor(left/60), left%60); row.TextColor3 = Theme.SubText
 							end
@@ -2724,7 +2826,7 @@ do
 						end
 					end
 				end
-				if not anyShown then ptitle.Text = "⏳ "..T("predictions").." —" end
+				if not anyShown then ptitle.Text = T("predictions").." —" end
 			end
 			task.wait(1)
 		end
