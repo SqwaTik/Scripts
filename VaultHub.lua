@@ -1940,16 +1940,21 @@ local function equipRod()
 	return false
 end
 
--- авто-reel через Heartbeat (читаем маркер и рыбу из GUI)
+-- авто-reel через Heartbeat (держим маркер CatchBar в зоне рыбы Fish)
 do
 	local holding = false
+	-- центр элемента в пикселях (надёжнее Scale: не зависит от AnchorPoint/единиц)
+	local function cx(el) return el.AbsolutePosition.X + el.AbsoluteSize.X * 0.5 end
 	local function findReel()
 		local cb, fish
 		for _, g in ipairs(PlayerGui:GetChildren()) do
 			if g:IsA("ScreenGui") and (g.Name:lower():find("fish") or g.Name:lower():find("reel")) then
 				cb = g:FindFirstChild("CatchBar", true) or g:FindFirstChild("Player", true)
 				fish = g:FindFirstChild("Fish", true) or g:FindFirstChild("Zone", true)
-				if cb and fish then return cb, fish end
+				if cb and fish and cb.Visible ~= false and fish.Visible ~= false
+					and cb.AbsoluteSize.X > 0 and fish.AbsoluteSize.X > 0 then
+					return cb, fish
+				end
 			end
 		end
 		return nil
@@ -1958,10 +1963,18 @@ do
 		if not Config.autoFish then if holding then mouseRelease(); holding=false end return end
 		local cb, fish = findReel()
 		if not (cb and fish) then if holding then mouseRelease(); holding=false end return end
-		if cb.Position.X.Scale < fish.Position.X.Scale - 0.01 then
-			if not holding then mousePress(); holding=true end
+		local cbX  = cx(cb)
+		local fC   = cx(fish)
+		local half = fish.AbsoluteSize.X * 0.5
+		-- Физика: зажал ЛКМ -> маркер резко вправо (+4.4), отпустил -> медленно влево (-1.4).
+		-- Поэтому целимся в ЛЕВУЮ половину зоны, чтобы резкий правый рывок не выбросил за край.
+		-- Гистерезис (мёртвая зона) — иначе press/release звенит каждый кадр.
+		if holding then
+			-- держим зажатой пока маркер не дошёл до целевой точки (центр зоны)
+			if cbX >= fC then mouseRelease(); holding=false end
 		else
-			if holding then mouseRelease(); holding=false end
+			-- зажимаем, когда маркер ушёл в левую треть зоны
+			if cbX < fC - half * 0.30 then mousePress(); holding=true end
 		end
 	end)
 end
