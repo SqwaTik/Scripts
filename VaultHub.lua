@@ -68,8 +68,10 @@ local L = {
 		-- farm
 		auto_bid="Авто-бид (аукцион)", min_bid="Скип, если ставка <",
 		max_bid="Макс. ставка (стоп)", bid_area="Локация аукциона",
+		bid_new="Выкупать новые (коллекция)",
 		auto_buyitems="Выкупать предметы в +", profit_min="Мин. профит",
 		auto_fish="Авто-рыбалка", auto_collect="Авто-сбор всего",
+		auto_collect_lost="Авто-сбор спрятанного", lost_sell="Продавать собранное",
 		bid_speed="Скорость ставок",
 		auto_stock="Авто-раскладка по полкам", auto_trade="Авто-торговля с клиентами",
 		trade_min="Принимать оффер от %", return_full="Возврат на базу при фулл весе",
@@ -122,8 +124,10 @@ local L = {
 		quick="Quick Actions", uptime="Uptime",
 		auto_bid="Auto Bid (auction)", min_bid="Skip if bid <",
 		max_bid="Max bid (stop)", bid_area="Auction area",
+		bid_new="Buy new (collection)",
 		auto_buyitems="Buy profitable items", profit_min="Min profit",
 		auto_fish="Auto Fishing", auto_collect="Auto Collect All",
+		auto_collect_lost="Auto Collect Lost & Found", lost_sell="Sell collected",
 		bid_speed="Bid Speed",
 		auto_stock="Auto stock shelves", auto_trade="Auto trade with customers",
 		trade_min="Accept offer from %", return_full="Return to base when full",
@@ -155,6 +159,57 @@ local L = {
 		tip_autoRepair="Auto repair: repairs items into free slots.",
 		tip_autoBuyDrink="Auto-buys luck drinks of the chosen tier when in stock.",
 	},
+	es = {
+		title="VAULT HUB", subtitle="Vault Hunters Open World",
+		loading="Cargando...", ready="Listo",
+		tab_home="Inicio", tab_farm="Auto Farmeo", tab_sell="Venta", tab_process="Procesado",
+		tab_tp="Teletransportes", tab_shop="Tienda", tab_quest="Misiones", tab_other="Otros", tab_settings="Ajustes",
+		auto_quest="Auto Misiones", quest_npc="NPC de misión", quest_take_new="Tomar nueva tras entregar",
+		anti_afk="Anti-AFK", keep_safes="Guardar cajas fuertes (a Cerrajero)", keep_rods="Guardar cañas",
+		fish_broken_sell="Vender cañas rotas en tienda",
+		fly="Volar (Fly)", fly_speed="Velocidad de vuelo", walkspeed="Velocidad de caminar", jumppower="Fuerza de salto",
+		noclip="Sin colisiones (NoClip)", inf_jump="Salto infinito",
+		esp_players="ESP jugadores", esp_containers="ESP contenedores", esp_npc="ESP NPC",
+		predict_enable="Mostrar eventos",
+		networth="Patrimonio", coins="Monedas", players="Jugadores", luck="Suerte",
+		quick="Acciones rápidas", uptime="Tiempo activo",
+		auto_bid="Auto Puja (subasta)", min_bid="Saltar si puja <",
+		max_bid="Puja máx. (parar)", bid_area="Zona de subasta",
+		bid_new="Comprar nuevos (colección)",
+		auto_buyitems="Comprar objetos rentables", profit_min="Beneficio mín.",
+		auto_fish="Auto Pesca", auto_collect="Auto Recoger Todo",
+		auto_collect_lost="Auto Recoger Perdidos", lost_sell="Vender lo recogido",
+		bid_speed="Velocidad de puja",
+		auto_stock="Auto surtir estantes", auto_trade="Auto comerciar con clientes",
+		trade_min="Aceptar oferta desde %", return_full="Volver a base si lleno",
+		auto_sell="Auto Venta", sell_with_car="Traer vehículo", keep_fav="Guardar favoritos",
+		keep_trophy="Guardar trofeos", sell_min="Precio mín. para vender", sell_now="Vender Ahora",
+		pawn_rate="Tasa de empeño", est_value="Valor del inventario",
+		auto_wash="Auto Lavado", auto_grade="Auto Tasación", auto_repair="Auto Reparación",
+		wash_min="Lavar desde precio", grade_min="Tasar desde precio", source="Origen",
+		src_inv="Inventario", src_car="Vehículo",
+		auto_buy_drink="Auto Comprar Bebidas", drink_tier="Nivel de bebida",
+		buy_now="Comprar Ahora", restock="Reposición en",
+		tp_areas="Zonas", tp_shops="Tiendas", tp_players="Tiendas de jugadores",
+		spawn_car="Aparecer Vehículo",
+		language="Idioma", keybind="Tecla de apertura", save_cfg="Guardar Config",
+		load_cfg="Cargar Config", export_cfg="Exportar", import_cfg="Importar",
+		cfg_saved="Config guardada", cfg_loaded="Config cargada",
+		cfg_exported="Copiado al portapapeles", cfg_imported="Config importada",
+		paste_here="Pega la config aquí...", credits="by SqwaTik",
+		on="SÍ", off="NO", none="ninguno",
+		rmb_hint="Clic derecho en una función para sub-ajustes", predictions="Eventos",
+		ev_soon="pronto", ev_active="activo",
+		tip_autoBid="Auto subasta: teletransporta a los contenedores, inicia la subasta y acierta la barra de puja (sin fallos). Salta lotes baratos por puja mín., para en máx.",
+		tip_autoFish="Auto pesca: teletransporta al lago y lanza automáticamente.",
+		tip_autoCollect="Auto recoger: reclama recompensas/objetos disponibles periódicamente.",
+		tip_autoSell="Auto venta: teletransporta a la casa de empeños, vende de lo más caro primero (filtros: favoritos/trofeos/precio mín.).",
+		tip_autoStock="Auto tienda: vuelve a base si está lleno, descarga al inventario y comercia vía ayudante.",
+		tip_autoWash="Auto lavado: lava objetos caros (sobre el precio fijado) en ranuras libres.",
+		tip_autoGrade="Auto tasación: tasa objetos caros (sobre el precio fijado) en ranuras.",
+		tip_autoRepair="Auto reparación: repara objetos en ranuras libres.",
+		tip_autoBuyDrink="Compra automática de bebidas de suerte del nivel elegido cuando hay stock.",
+	},
 }
 local function T(key)
 	return (L[Locale] and L[Locale][key]) or (L.en[key]) or key
@@ -168,8 +223,9 @@ local Config = {
 	keybind = "RightShift",
 	-- farm
 	autoBid = false, minBid = 0, maxBid = 25000, bidSpeed = 0.35,
-	bidArea = "", autoBuyItems = false, profitMin = 20,
+	bidArea = "", autoBuyItems = false, profitMin = 20, bidNew = false,
 	autoFish = false, autoCollectAll = false,
+	autoCollectLost = false, lostSell = false,
 	-- trade / shop management
 	autoStock = false, autoTrade = false, tradeMinPercent = 80, returnWhenFull = true,
 	-- sell
@@ -763,10 +819,16 @@ logoSub.TextColor3 = Theme.SubText
 logoSub.TextXAlignment = Enum.TextXAlignment.Left
 logoSub.Parent = sideHeader
 
-local tabHolder = Instance.new("Frame")
+local tabHolder = Instance.new("ScrollingFrame")
 tabHolder.Size = UDim2.new(1, 0, 1, -64)
 tabHolder.Position = UDim2.new(0, 0, 0, 64)
 tabHolder.BackgroundTransparency = 1
+tabHolder.BorderSizePixel = 0
+tabHolder.ScrollBarThickness = 2
+tabHolder.ScrollBarImageColor3 = Theme.Stroke
+tabHolder.CanvasSize = UDim2.new(0,0,0,0)
+tabHolder.AutomaticCanvasSize = Enum.AutomaticSize.Y
+tabHolder.ScrollingDirection = Enum.ScrollingDirection.Y
 tabHolder.Parent = Side
 local tabList = Instance.new("UIListLayout")
 tabList.Padding = UDim.new(0, 4)
@@ -788,7 +850,7 @@ topBar.BackgroundTransparency = 1
 topBar.Parent = Content
 
 local pageTitle = Instance.new("TextLabel")
-pageTitle.Size = UDim2.new(1, -110, 1, 0)
+pageTitle.Size = UDim2.new(1, -260, 1, 0)
 pageTitle.Position = UDim2.new(0, 20, 0, 0)
 pageTitle.BackgroundTransparency = 1
 pageTitle.Text = T("tab_home")
@@ -848,7 +910,7 @@ end
 
 -- меню языка поверх ВСЕГО (parent Main, максимальный ZIndex)
 local langMenu = Instance.new("Frame")
-langMenu.Size = UDim2.fromOffset(70, 0)
+langMenu.Size = UDim2.fromOffset(88, 0)
 langMenu.AutomaticSize = Enum.AutomaticSize.Y
 langMenu.Position = UDim2.new(1, -78, 0, 52)
 langMenu.AnchorPoint = Vector2.new(0, 0)
@@ -859,10 +921,14 @@ langMenu.Parent = Main
 corner(langMenu, 8); stroke(langMenu, Theme.Stroke, 1, 0)
 local lmp = Instance.new("UIPadding"); lmp.PaddingTop=UDim.new(0,4);lmp.PaddingBottom=UDim.new(0,4);lmp.PaddingLeft=UDim.new(0,4);lmp.PaddingRight=UDim.new(0,4); lmp.Parent=langMenu
 local lml = Instance.new("UIListLayout"); lml.Padding=UDim.new(0,2); lml.Parent=langMenu
-for _, lang in ipairs({"ru","en"}) do
+local LANG_FLAG = { ru="🇷🇺", en="🇬🇧", es="🇪🇸" }
+for _, lang in ipairs({"ru","en","es"}) do
 	local o = Instance.new("TextButton")
 	o.Size = UDim2.new(1,0,0,26); o.BackgroundColor3 = Theme.SurfaceHl; o.AutoButtonColor=false
-	o.Font = Enum.Font.GothamBold; o.TextSize=12; o.TextColor3=Theme.Text; o.Text=lang:upper()
+	o.Font = Enum.Font.GothamBold; o.TextSize=12; o.TextColor3=Theme.Text
+	o.Text = (LANG_FLAG[lang] or "").."  "..lang:upper()  -- флаг сначала, потом код
+	o.TextXAlignment = Enum.TextXAlignment.Left
+	local op = Instance.new("UIPadding"); op.PaddingLeft=UDim.new(0,8); op.Parent=o
 	o.ZIndex = 5001; o.Parent = langMenu; corner(o,5)
 	o.MouseEnter:Connect(function() tween(o,0.1,{BackgroundColor3=Theme.Accent}) end)
 	o.MouseLeave:Connect(function() tween(o,0.1,{BackgroundColor3=Theme.SurfaceHl}) end)
@@ -921,15 +987,15 @@ local pages = {}
 local tabButtons = {}
 local currentTab
 
--- общий индикатор активной вкладки (плавно съезжает)
+-- общий индикатор активной вкладки (плавно съезжает; внутри tabHolder -> скроллится вместе)
 local tabIndicator = Instance.new("Frame")
 tabIndicator.Name = "TabIndicator"
 tabIndicator.Size = UDim2.fromOffset(3, 22)
-tabIndicator.Position = UDim2.new(0, 0, 0, 76)
+tabIndicator.Position = UDim2.new(0, 0, 0, 13)
 tabIndicator.BackgroundColor3 = Theme.Accent
 tabIndicator.BorderSizePixel = 0
 tabIndicator.ZIndex = 6
-tabIndicator.Parent = Side
+tabIndicator.Parent = tabHolder
 corner(tabIndicator, 2)
 local tig = Instance.new("UIGradient"); tig.Color = ColorSequence.new(Theme.Accent, Theme.Accent2); tig.Rotation = 90; tig.Parent = tabIndicator
 
@@ -944,7 +1010,7 @@ local function selectTab(name)
 	end
 	local t = tabButtons[name]
 	if t then
-		local y = 64 + 4 + (t.btn.LayoutOrder - 1) * 44 + 9
+		local y = 4 + (t.btn.LayoutOrder - 1) * 44 + 9  -- внутри canvas tabHolder
 		tween(tabIndicator, 0.3, {Position = UDim2.new(0, 0, 0, y)}, Enum.EasingStyle.Back)
 	end
 	for n, pg in pairs(pages) do pg.Visible = (n == name) end
@@ -1404,6 +1470,7 @@ function Comp.module(parent, text, key, subBuild, callback)
 		expanded = not expanded
 		tween(arrow, 0.2, {Rotation = expanded and 90 or 0})
 		tween(arrow, 0.2, {TextColor3 = expanded and Theme.Accent or Theme.SubText})
+		tween(wrap, 0.12, {BackgroundColor3 = Theme.Surface})  -- развёрнутый/свёрнутый — без подсветки наведения
 		if expanded then
 			panel.Visible = true
 			local h = inner.AbsoluteSize.Y
@@ -1417,8 +1484,8 @@ function Comp.module(parent, text, key, subBuild, callback)
 	-- клик по шапке (ЛКМ и ПКМ) раскрывает; свитч справа тоглит сам
 	head.MouseButton1Click:Connect(togglePanel)
 	head.MouseButton2Click:Connect(togglePanel)
-	head.MouseEnter:Connect(function() if hasSub then tween(wrap,0.12,{BackgroundColor3=Theme.SurfaceHl}) end end)
-	head.MouseLeave:Connect(function() tween(wrap,0.12,{BackgroundColor3=Theme.Surface}) end)
+	head.MouseEnter:Connect(function() if hasSub and not expanded then tween(wrap,0.12,{BackgroundColor3=Theme.SurfaceHl}) end end)
+	head.MouseLeave:Connect(function() if not expanded then tween(wrap,0.12,{BackgroundColor3=Theme.Surface}) end end)
 	-- тултип-описание (если есть перевод tip_<key>)
 	attachTip(head, function()
 		local tk = "tip_"..key
@@ -1482,6 +1549,7 @@ Comp.module(farmSec, T("auto_bid"), "autoBid", function(p)
 	Comp.slider(p, T("min_bid"), "minBid", 0, 50000, 25, "$")
 	Comp.slider(p, T("max_bid"), "maxBid", 0, 100000, 50, "$")
 	Comp.slider(p, T("bid_speed"), "bidSpeed", 0.1, 1.5, 0.05, "s")
+	Comp.toggle(p, T("bid_new"), "bidNew")
 	Comp.toggle(p, T("auto_buyitems"), "autoBuyItems")
 	Comp.slider(p, T("profit_min"), "profitMin", 0, 100, 5, "%")
 	Comp.toggle(p, T("keep_safes"), "keepSafes")
@@ -1490,6 +1558,9 @@ Comp.module(farmSec, T("auto_fish"), "autoFish", function(p)
 	Comp.toggle(p, T("fish_broken_sell"), "fishBrokenSell")
 end)
 Comp.module(farmSec, T("auto_collect"), "autoCollectAll", nil)
+Comp.module(farmSec, T("auto_collect_lost"), "autoCollectLost", function(p)
+	Comp.toggle(p, T("lost_sell"), "lostSell")
+end)
 
 -- =========== SELL ===========
 local sellSec = Comp.section(sellPage, nil)
@@ -1567,7 +1638,7 @@ do
 	if qfolder then for _, n in ipairs(qfolder:GetChildren()) do addNpc(n.Name) end end
 	for _, npc in ipairs({"Billy","Sal","Ted","Steve"}) do addNpc(npc) end
 end
-if Locale == "en" then questNpcNames[1] = "All" end
+if Locale == "en" then questNpcNames[1] = "All" elseif Locale == "es" then questNpcNames[1] = "Todos" end
 if not Config.questNpc or Config.questNpc == "" then Config.questNpc = questNpcNames[1] end
 
 local questSec = Comp.section(questPage, nil)
@@ -1588,12 +1659,13 @@ Comp.toggle(moveSec, T("inf_jump"), "infJump")
 Comp.toggle(moveSec, T("anti_afk"), "antiAfk")
 
 local espSec = Comp.section(otherPage, "ESP")
-Comp.toggle(espSec, T("esp_players"), "espPlayers")
-Comp.toggle(espSec, T("esp_containers"), "espContainers")
-Comp.toggle(espSec, T("esp_npc"), "espNpc")
+local function espRefresh() if _G.__VH_refreshEsp then _G.__VH_refreshEsp() end end
+Comp.toggle(espSec, T("esp_players"), "espPlayers", espRefresh)
+Comp.toggle(espSec, T("esp_containers"), "espContainers", espRefresh)
+Comp.toggle(espSec, T("esp_npc"), "espNpc", espRefresh)
 
 local miscSec = Comp.section(otherPage, T("predictions"))
-Comp.toggle(miscSec, T("predict_enable"), "predictEnable")
+Comp.toggle(miscSec, T("predict_enable"), "predictEnable", function(v) if _G.__VH_setPred then _G.__VH_setPred(v) end end)
 
 -- =========== TELEPORTS ===========
 local tpAreas   = Comp.section(tpPage, T("tp_areas"))
@@ -1786,10 +1858,13 @@ end)
 
 -- авто-бид (timing-миниигра: исход решает сервер -> шлём Bid в ритме)
 local biddingActive = false
+local areaActive = false   -- ToggleAuctionArea: аукцион реально идёт (приходит ~0.1с после старта)
 local currentBid = 0
 do
+	local toggleArea = ev("Auction.ToggleAuctionArea")
 	local toggleUI = ev("Auction.ToggleBiddingUI")
 	local updBid = ev("Auction.UpdateCurrentWinningBid")
+	if toggleArea then toggleArea.OnClientEvent:Connect(function(state) areaActive = (state == true) end) end
 	if toggleUI then toggleUI.OnClientEvent:Connect(function(state) biddingActive = (state ~= false and state ~= nil) end) end
 	if updBid then updBid.OnClientEvent:Connect(function(v)
 		if type(v)=="number" then currentBid = v
@@ -1815,13 +1890,16 @@ RunService.Heartbeat:Connect(function()
 	-- умно: не бидим выше своих наличных (капитал не позволяет)
 	local cash = LocalPlayer:GetAttribute("Cash") or 0
 	if currentBid > 0 and currentBid >= cash then return end
+	-- путь: AuctionBiddingContainer.BidBarRow.Track.{BidZone,Cursor}
 	local row = cont:FindFirstChild("BidBarRow")
-	local zone = row and row:FindFirstChild("BidZone")
-	local cur = row and row:FindFirstChild("Cursor")
-	if not (zone and cur) then return end
-	local zs = zone.Position.X.Scale - zone.AnchorPoint.X * zone.Size.X.Scale
-	local ze = zs + zone.Size.X.Scale
-	local cx = cur.Position.X.Scale
+	local track = row and row:FindFirstChild("Track")
+	local zone = track and track:FindFirstChild("BidZone")
+	local cur = track and track:FindFirstChild("Cursor")
+	if not (zone and cur) or zone.AbsoluteSize.X <= 0 then return end
+	-- считаем в пикселях (надёжно при любых якорях/единицах)
+	local zs = zone.AbsolutePosition.X
+	local ze = zs + zone.AbsoluteSize.X
+	local cx = cur.AbsolutePosition.X + cur.AbsoluteSize.X * 0.5
 	-- небольшой внутренний отступ -> бьём ближе к центру (perfect), не по краю
 	local pad = (ze - zs) * 0.12
 	if cx >= (zs + pad) and cx <= (ze - pad) and (os.clock() - lastHit) > 0.1 then
@@ -1837,6 +1915,31 @@ do
 	for _, poi in ipairs(API.getPOIs()) do
 		if poi.category == "Area" then AREA_CENTER[poi.name] = parseVec(poi.position) end
 	end
+end
+
+-- конфиг гаражей (MinNetWorth / EntryCost / MinAuctionValue) для умного скипа по капиталу
+local GarageCfg
+pcall(function() GarageCfg = require(Modules.Garages) end)
+-- кэш проверки "открыт ли предмет" (Collections.HasDiscoveredItem), чтобы не дёргать сервер повторно
+local discoveredCache = {}
+local function isItemNew(itemId)
+	if not itemId then return false end
+	local key = tostring(itemId)
+	if discoveredCache[key] ~= nil then return discoveredCache[key] == false end
+	local discovered = true
+	local cf = ev("Collections.HasDiscoveredItem")
+	if cf then
+		local done = false
+		task.spawn(function()
+			local ok, res = pcall(function() return cf:InvokeServer(key) end)
+			if ok and type(res) == "boolean" then discovered = res end
+			done = true
+		end)
+		local t = 0
+		repeat task.wait(0.1); t = t + 0.1 until done or t > 3
+	end
+	discoveredCache[key] = discovered
+	return discovered == false
 end
 
 local function getGarages()
@@ -1864,25 +1967,54 @@ end
 local function doGarageAuction(g)
 	local hrp = getHRP()
 	if not hrp or not g.part then return end
+
+	-- скип по капиталу: если MinNetWorth гаража выше, чем у игрока — пропускаем
+	local garageCfg = GarageCfg and GarageCfg[g.name]
+	if garageCfg and garageCfg.MinNetWorth then
+		local myNetWorth = LocalPlayer:GetAttribute("MaxNetWorth") or LocalPlayer:GetAttribute("NetWorth") or 0
+		if myNetWorth < garageCfg.MinNetWorth then return end  -- допуск по капиталу не пройден
+	end
+
 	hrp.CFrame = CFrame.new(g.part.Position + Vector3.new(0, 3, 0))
 	task.wait(0.35)
 	biddingActive = false
+	areaActive = false
 	currentBid = 0
 	pcall(function() fireproximityprompt(g.prompt) end)
-	-- ждём старт торгов (max 5с)
+
+	-- ждём вход в зону (ToggleAuctionArea приходит ~0.1с)
 	local t0 = os.clock()
-	repeat task.wait(0.1) until biddingActive or (os.clock()-t0) > 5 or not Config.autoBid
-	if not biddingActive then task.wait(0.3); return end
-	task.wait(0.4)
-	-- скип дешёвого лота по начальной ставке
+	repeat task.wait(0.08) until areaActive or (os.clock()-t0) > 2 or not Config.autoBid
+	if not areaActive then task.wait(0.2); return end
+
+	-- теперь ждём старт торгов (ToggleBiddingUI приходит через ~6с после area, но может быть кинематика)
+	t0 = os.clock()
+	repeat task.wait(0.12) until biddingActive or (os.clock()-t0) > 10 or not Config.autoBid
+	if not biddingActive then API.leaveAuction(); task.wait(0.3); return end
+	task.wait(0.3)
+
+	-- скип дешёвого лота по начальной ставке (если не "новый")
+	local skipCheap = false
 	if Config.minBid > 0 and currentBid > 0 and currentBid < Config.minBid then
-		API.leaveAuction(); task.wait(0.3); return
+		skipCheap = true
+		-- "выкупать новые": если предмет ещё не открыт в коллекции — не скипать (берём даже дешёвый)
+		if Config.bidNew then
+			local itemId
+			for _, m in ipairs(g.model:GetDescendants()) do
+				itemId = m:GetAttribute("ItemId")
+				if itemId then break end
+			end
+			if itemId and isItemNew(itemId) then skipCheap = false end
+		end
 	end
+	if skipCheap then API.leaveAuction(); task.wait(0.3); return end
+
 	-- умно: если начальная ставка уже выше наличных — контейнер не по карману, уходим
 	local cash = LocalPlayer:GetAttribute("Cash") or 0
 	if currentBid > 0 and currentBid >= cash then
 		API.leaveAuction(); task.wait(0.3); return
 	end
+
 	-- СТОИМ на гараже и ждём конца торгов; авто-хит (Heartbeat) сам бидит в зоне
 	local bt = os.clock()
 	repeat
@@ -1891,7 +2023,7 @@ local function doGarageAuction(g)
 			hrp.CFrame = CFrame.new(g.part.Position + Vector3.new(0, 3, 0))
 		end
 		task.wait(0.2)
-	until (not biddingActive) or (not Config.autoBid) or (os.clock()-bt) > 30
+	until (not areaActive) or (not Config.autoBid) or (os.clock()-bt) > 35
 	task.wait(0.6) -- дать забрать предметы (auto-pickup на событии)
 end
 
@@ -2020,6 +2152,71 @@ task.spawn(function()
 	end
 end)
 
+-- ========== АВТО-СБОР LOST & FOUND (спрятанные/потерянные предметы) ==========
+task.spawn(function()
+	while ScreenGui.Parent do
+		if Config.autoCollectLost then
+			local hrp = getHRP()
+			if not hrp then task.wait(2); continue end
+			-- папка _LostItems содержит все разбросанные предметы
+			local lostFolder
+			for _, d in ipairs(Workspace:GetDescendants()) do
+				if d.Name == "_LostItems" and d:IsA("Folder") then lostFolder = d; break end
+			end
+			if not lostFolder or #lostFolder:GetChildren() == 0 then task.wait(5); continue end
+			-- заспавним тачку один раз перед сбором (чтобы "Add to Vehicle" сработал)
+			API.spawnVehicle()
+			task.wait(1.2)
+			-- собираем по одному
+			for _, item in ipairs(lostFolder:GetChildren()) do
+				if not Config.autoCollectLost then break end
+				-- проверяем вес (CarryWeight vs CarryWeightCapacity)
+				local weight = LocalPlayer:GetAttribute("CarryWeight") or 0
+				local cap = LocalPlayer:GetAttribute("CarryWeightCapacity") or 999
+				if weight >= cap then
+					-- полный вес -> разгрузка или продажа
+					if Config.lostSell and Config.autoSell then
+						_G.__VH_sellNow()
+						task.wait(3)
+					elseif Config.autoStock then
+						-- телепорт в базу и выгрузка
+						for _, poi in ipairs(API.getPOIs()) do
+							if poi.name:find("Warehouse") or poi.name:find("Plot") then
+								teleport(poi.position); task.wait(1.5); break
+							end
+						end
+					else
+						task.wait(2)  -- ждём, пока игрок сам разгрузится
+					end
+				end
+				-- телепорт к предмету
+				local part = item.PrimaryPart or item:FindFirstChildWhichIsA("BasePart")
+				if part then
+					hrp.CFrame = CFrame.new(part.Position + Vector3.new(0, 2, 0))
+					task.wait(0.5)
+					-- если предмет далеко от тачки → респавним тачку рядом
+					API.spawnVehicle()
+					task.wait(0.8)
+					-- дёргаем промпт "Add to Vehicle"
+					local prompt
+					for _, d in ipairs(item:GetDescendants()) do
+						if d:IsA("ProximityPrompt") and d.ActionText == "Add to Vehicle" then
+							prompt = d; break
+						end
+					end
+					if prompt then
+						pcall(function() fireproximityprompt(prompt) end)
+						task.wait(0.7)
+					end
+				end
+			end
+			task.wait(2)
+		else
+			task.wait(2)
+		end
+	end
+end)
+
 -- ========== ДВИЖЕНИЕ: Fly / WalkSpeed / Jump / NoClip / InfJump ==========
 local flyConn, flyBV, flyBG
 function _G.__VH_setFly(on)
@@ -2104,28 +2301,36 @@ local function makeEsp(inst, color, label)
 end
 local function clearEsp(pred)
 	for inst, hl in pairs(espCache) do
-		if pred(inst) then hl:Destroy(); espCache[inst] = nil end
+		if (not inst.Parent) or pred(inst) then hl:Destroy(); espCache[inst] = nil end
 	end
+end
+-- один проход ESP (вызывается циклом и мгновенно из тогглов)
+local function espPass()
+	-- игроки
+	if Config.espPlayers then
+		for _, pl in ipairs(Players:GetPlayers()) do
+			if pl ~= LocalPlayer and pl.Character then makeEsp(pl.Character, Color3.fromRGB(90,160,255)) end
+		end
+	else clearEsp(function(i) return i:IsA("Model") and Players:GetPlayerFromCharacter(i) ~= nil end) end
+	-- контейнеры (гаражи)
+	if Config.espContainers then
+		local gf = Workspace:FindFirstChild("_Debris"); gf = gf and gf:FindFirstChild("Garages")
+		if gf then for _, g in ipairs(gf:GetChildren()) do makeEsp(g, Color3.fromRGB(120,255,140)) end end
+	else clearEsp(function(i) return i.Parent and i.Parent.Name=="Garages" end) end
+	-- NPC
+	if Config.espNpc then
+		local nf = Workspace:FindFirstChild("Mall - Shop NPCs")
+		if nf then for _, n in ipairs(nf:GetDescendants()) do if n:IsA("Model") and n:FindFirstChildOfClass("Humanoid") then makeEsp(n, Color3.fromRGB(255,200,80)) end end end
+	else clearEsp(function(i) return i:IsA("Model") and i:FindFirstChildOfClass("Humanoid") and not Players:GetPlayerFromCharacter(i) and i.Parent and i.Parent.Name=="Mall - Shop NPCs" end) end
+end
+-- мгновенное применение при переключении тоггла ESP
+function _G.__VH_refreshEsp()
+	pcall(espPass)
 end
 task.spawn(function()
 	while ScreenGui.Parent do
-		-- игроки
-		if Config.espPlayers then
-			for _, pl in ipairs(Players:GetPlayers()) do
-				if pl ~= LocalPlayer and pl.Character then makeEsp(pl.Character, Color3.fromRGB(90,160,255)) end
-			end
-		else clearEsp(function(i) return i:IsA("Model") and Players:GetPlayerFromCharacter(i) end) end
-		-- контейнеры (гаражи)
-		if Config.espContainers then
-			local gf = Workspace:FindFirstChild("_Debris"); gf = gf and gf:FindFirstChild("Garages")
-			if gf then for _, g in ipairs(gf:GetChildren()) do makeEsp(g, Color3.fromRGB(120,255,140)) end end
-		else clearEsp(function(i) return i.Parent and i.Parent.Name=="Garages" end) end
-		-- NPC
-		if Config.espNpc then
-			local nf = Workspace:FindFirstChild("Mall - Shop NPCs")
-			if nf then for _, n in ipairs(nf:GetDescendants()) do if n:IsA("Model") and n:FindFirstChildOfClass("Humanoid") then makeEsp(n, Color3.fromRGB(255,200,80)) end end end
-		else clearEsp(function(i) return i:IsA("Model") and i:FindFirstChildOfClass("Humanoid") and not Players:GetPlayerFromCharacter(i) and i.Parent and i.Parent.Name=="Mall - Shop NPCs" end) end
-		task.wait(2)
+		pcall(espPass)
+		task.wait(1)
 	end
 end)
 
@@ -2136,7 +2341,7 @@ task.spawn(function()
 		if Config.autoQuest then
 			-- ищем NPC с восклицательным знаком (доступен квест) и общаемся
 			local target = Config.questNpc
-			local function npcMatches(name) return (target=="Все" or target=="All") or name==target end
+			local function npcMatches(name) return (target=="Все" or target=="All" or target=="Todos") or name==target end
 			local function tryNpc(npcModel)
 				if not npcModel then return end
 				local hrp = getHRP()
@@ -2244,6 +2449,70 @@ keybindBtn = Comp.button(setSec, T("keybind").." ["..(Config.keybind or "RightSh
 end)
 
 ---------------------------------------------------------------------
+-- ПОИСК ФУНКЦИЙ (рядом с языком в topBar)
+---------------------------------------------------------------------
+do
+	local searchBox = Instance.new("TextBox")
+	searchBox.Size = UDim2.fromOffset(150, 30)
+	searchBox.Position = UDim2.new(1, -236, 0.5, 0)
+	searchBox.AnchorPoint = Vector2.new(0, 0.5)
+	searchBox.BackgroundColor3 = Theme.Surface
+	searchBox.Text = ""
+	searchBox.PlaceholderText = "🔍 "..(Locale=="ru" and "Поиск" or (Locale=="es" and "Buscar" or "Search"))
+	searchBox.PlaceholderColor3 = Theme.SubText
+	searchBox.Font = Enum.Font.Gotham
+	searchBox.TextSize = 12
+	searchBox.TextColor3 = Theme.Text
+	searchBox.TextXAlignment = Enum.TextXAlignment.Left
+	searchBox.ClearTextOnFocus = false
+	searchBox.Parent = topBar
+	corner(searchBox, 8); stroke(searchBox, Theme.Stroke, 1, 0.3)
+	local sbp = Instance.new("UIPadding"); sbp.PaddingLeft=UDim.new(0,10); sbp.PaddingRight=UDim.new(0,10); sbp.Parent=searchBox
+
+	-- текст искомого элемента: кнопка -> её текст; иначе первый осмысленный TextLabel (слева)
+	local function nodeText(node)
+		if node:IsA("TextButton") and node.Text ~= "" then return node.Text end
+		for _, d in ipairs(node:GetDescendants()) do
+			if d:IsA("TextLabel") and d.Text ~= "" and d.Name ~= "Header" and d.TextXAlignment == Enum.TextXAlignment.Left then
+				return d.Text
+			end
+		end
+		return nil
+	end
+	-- индекс всех модулей/тогглов/кнопок по вкладкам
+	local searchIndex = {}
+	for tabName, pg in pairs(pages) do
+		for _, sec in ipairs(pg:GetChildren()) do
+			if sec:IsA("Frame") then
+				for _, child in ipairs(sec:GetChildren()) do
+					if child:IsA("Frame") or child:IsA("TextButton") then
+						local txt = nodeText(child)
+						if txt then searchIndex[#searchIndex+1] = {tab=tabName, node=child, sec=sec, text=txt:lower()} end
+					end
+				end
+			end
+		end
+	end
+
+	local function doSearch(q)
+		q = (q or ""):lower():gsub("^%s+",""):gsub("%s+$","")
+		if q == "" then
+			for _, e in ipairs(searchIndex) do e.node.Visible = true; e.sec.Visible = true end
+			return
+		end
+		local secHas, firstTab = {}, nil
+		for _, e in ipairs(searchIndex) do
+			local match = e.text:find(q, 1, true) ~= nil
+			e.node.Visible = match
+			if match then secHas[e.sec] = true; if not firstTab then firstTab = e.tab end end
+		end
+		for _, e in ipairs(searchIndex) do e.sec.Visible = (secHas[e.sec] == true) end
+		if firstTab and currentTab ~= firstTab then selectTab(firstTab) end
+	end
+	searchBox:GetPropertyChangedSignal("Text"):Connect(function() doSearch(searchBox.Text) end)
+end
+
+---------------------------------------------------------------------
 -- INIT
 ---------------------------------------------------------------------
 buildTeleports()
@@ -2297,6 +2566,9 @@ do
 		row.Parent = pred
 		rows[name] = row
 	end
+
+	-- мгновенное скрытие/показ панели при переключении тоггла
+	function _G.__VH_setPred(v) pred.Visible = (v ~= false) end
 
 	task.spawn(function()
 		while ScreenGui.Parent do
