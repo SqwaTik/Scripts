@@ -625,17 +625,17 @@ end
 -- THEME
 ---------------------------------------------------------------------
 local Theme = {
-	Bg        = Color3.fromRGB(12, 13, 18),
-	Panel     = Color3.fromRGB(18, 20, 28),
-	Surface   = Color3.fromRGB(27, 30, 40),
-	SurfaceHl = Color3.fromRGB(38, 42, 56),
-	Stroke    = Color3.fromRGB(44, 48, 64),
-	Accent    = Color3.fromRGB(124, 108, 255),
-	Accent2   = Color3.fromRGB(80, 196, 255),
-	Success   = Color3.fromRGB(64, 222, 142),
-	Danger    = Color3.fromRGB(255, 96, 112),
-	Text      = Color3.fromRGB(238, 240, 250),
-	SubText   = Color3.fromRGB(138, 145, 168),
+	Bg        = Color3.fromRGB(15, 16, 22),
+	Panel     = Color3.fromRGB(22, 24, 32),
+	Surface   = Color3.fromRGB(30, 33, 44),
+	SurfaceHl = Color3.fromRGB(40, 44, 58),
+	Stroke    = Color3.fromRGB(48, 52, 68),
+	Accent    = Color3.fromRGB(120, 110, 255),
+	Accent2   = Color3.fromRGB(90, 200, 255),
+	Success   = Color3.fromRGB(70, 220, 140),
+	Danger    = Color3.fromRGB(255, 90, 110),
+	Text      = Color3.fromRGB(235, 238, 250),
+	SubText   = Color3.fromRGB(140, 146, 168),
 }
 
 local ICON = {
@@ -806,35 +806,8 @@ Main.BorderSizePixel = 0
 Main.ClipsDescendants = true
 Main.Visible = false
 Main.Parent = ScreenGui
-corner(Main, 16)
-stroke(Main, Theme.Stroke, 1, 0.15)
--- мягкая тень под окном (отдельный слой за Main, не обрезается)
-do
-	local shadow = Instance.new("ImageLabel")
-	shadow.Name = "MainShadow"
-	shadow.Image = "rbxassetid://6014261993"
-	shadow.ImageColor3 = Color3.new(0,0,0)
-	shadow.ImageTransparency = 0.4
-	shadow.ScaleType = Enum.ScaleType.Slice
-	shadow.SliceCenter = Rect.new(49, 49, 450, 450)
-	shadow.Size = UDim2.fromOffset(640 + 70, 440 + 70)
-	shadow.Position = UDim2.fromScale(0.5, 0.5)
-	shadow.AnchorPoint = Vector2.new(0.5, 0.5)
-	shadow.BackgroundTransparency = 1
-	shadow.ZIndex = 0
-	shadow.Parent = ScreenGui
-	-- держим тень под центром окна
-	Main:GetPropertyChangedSignal("Position"):Connect(function() shadow.Position = Main.Position end)
-	Main:GetPropertyChangedSignal("Visible"):Connect(function() shadow.Visible = Main.Visible end)
-	shadow.Visible = false
-end
--- лёгкий вертикальный градиент фона для глубины
-do
-	local mg = Instance.new("UIGradient")
-	mg.Color = ColorSequence.new(Color3.fromRGB(20, 22, 30), Theme.Bg)
-	mg.Rotation = 90
-	mg.Parent = Main
-end
+corner(Main, 14)
+stroke(Main, Theme.Stroke, 1, 0.2)
 
 -- drag
 do
@@ -962,16 +935,16 @@ do
 	corner(l2, 1)
 end
 
--- кнопка смены языка — показывает текущий код языка (RU/EN/ES), клик выдвигает выбор
+-- кнопка смены языка — значок глобуса, клик выдвигает выбор
 local langBtn = Instance.new("TextButton")
-langBtn.Size = UDim2.fromOffset(34, 30)
+langBtn.Size = UDim2.fromOffset(30, 30)
 langBtn.Position = UDim2.new(1, -78, 0.5, 0)
 langBtn.AnchorPoint = Vector2.new(0, 0.5)
 langBtn.BackgroundColor3 = Theme.Surface
 langBtn.AutoButtonColor = false
-langBtn.Text = Locale:upper()
+langBtn.Text = "🌐"
 langBtn.Font = Enum.Font.GothamBold
-langBtn.TextSize = 12
+langBtn.TextSize = 15
 langBtn.TextColor3 = Theme.Accent2
 langBtn.Parent = topBar
 corner(langBtn, 8)
@@ -1289,9 +1262,9 @@ function Comp.toggle(parent, text, key, callback)
 end
 
 function Comp.slider(parent, text, key, min, max, step, suffix, callback)
-	local r = rowBase(parent, 50)
+	local r = rowBase(parent, 48)
 	local lbl = Instance.new("TextLabel")
-	lbl.Size = UDim2.new(1, -96, 0, 20)
+	lbl.Size = UDim2.new(1, -84, 0, 20)
 	lbl.BackgroundTransparency = 1
 	lbl.Text = text
 	lbl.Font = Enum.Font.GothamMedium
@@ -1300,54 +1273,33 @@ function Comp.slider(parent, text, key, min, max, step, suffix, callback)
 	lbl.TextXAlignment = Enum.TextXAlignment.Left
 	lbl.Parent = r
 
-	-- значение = TextBox: клик -> ввод числа вручную
+	-- значение = TextBox (клик -> ввод любого числа), но визуально как обычная подпись
 	local valBox = Instance.new("TextBox")
-	valBox.Size = UDim2.new(0, 92, 0, 22)
-	valBox.Position = UDim2.new(1, -92, 0, -1)
-	valBox.BackgroundColor3 = Theme.Surface
-	valBox.BackgroundTransparency = 0.25
+	valBox.Size = UDim2.new(0, 80, 0, 20)
+	valBox.Position = UDim2.new(1, -80, 0, 0)
+	valBox.BackgroundTransparency = 1
 	valBox.Font = Enum.Font.GothamBold
 	valBox.TextSize = 13
 	valBox.TextColor3 = Theme.Accent2
 	valBox.TextXAlignment = Enum.TextXAlignment.Right
 	valBox.ClearTextOnFocus = false
 	valBox.Parent = r
-	corner(valBox, 6); stroke(valBox, Theme.Stroke, 1, 0.4)
-	local vbp = Instance.new("UIPadding"); vbp.PaddingRight=UDim.new(0,8); vbp.PaddingLeft=UDim.new(0,6); vbp.Parent=valBox
 
-	-- стеклянный трек
 	local track = Instance.new("Frame")
-	track.Size = UDim2.new(1, 0, 0, 8)
-	track.Position = UDim2.new(0, 0, 0, 34)
+	track.Size = UDim2.new(1, 0, 0, 6)
+	track.Position = UDim2.new(0, 0, 0, 32)
 	track.BackgroundColor3 = Theme.Surface
-	track.BackgroundTransparency = 0.25
 	track.BorderSizePixel = 0
 	track.Parent = r
-	corner(track, 4); stroke(track, Theme.Stroke, 1, 0.4)
+	corner(track, 3)
 
 	local fill = Instance.new("Frame")
 	fill.Size = UDim2.new(0, 0, 1, 0)
 	fill.BackgroundColor3 = Theme.Accent
 	fill.BorderSizePixel = 0
 	fill.Parent = track
-	corner(fill, 4)
+	corner(fill, 3)
 	local g = Instance.new("UIGradient"); g.Color = ColorSequence.new(Theme.Accent, Theme.Accent2); g.Parent = fill
-	-- блик стекла сверху
-	local gloss = Instance.new("Frame")
-	gloss.Size = UDim2.new(1, 0, 0.45, 0); gloss.Position = UDim2.new(0,0,0,0)
-	gloss.BackgroundColor3 = Color3.new(1,1,1); gloss.BackgroundTransparency = 0.75; gloss.BorderSizePixel = 0
-	gloss.Parent = track; corner(gloss, 4)
-
-	-- бегунок-ручка (легко схватить)
-	local knob = Instance.new("Frame")
-	knob.Size = UDim2.fromOffset(16, 16)
-	knob.AnchorPoint = Vector2.new(0.5, 0.5)
-	knob.Position = UDim2.new(0, 0, 0.5, 0)
-	knob.BackgroundColor3 = Color3.new(1,1,1)
-	knob.BorderSizePixel = 0
-	knob.ZIndex = 3
-	knob.Parent = track
-	corner(knob, 8); stroke(knob, Theme.Accent, 2, 0)
 
 	local function fmt(v)
 		if step < 1 then return string.format("%.2f%s", v, suffix or "") end
@@ -1355,34 +1307,24 @@ function Comp.slider(parent, text, key, min, max, step, suffix, callback)
 	end
 	local function set(v, fire)
 		v = math.clamp(v, min, max)
-		if step >= 1 then v = math.floor(v/step + 0.5)*step
-		else v = math.floor(v/step + 0.5)*step end
+		v = math.floor(v/step + 0.5)*step
 		Config[key] = v
 		local a = (max>min) and (v - min)/(max - min) or 0
-		tween(fill, 0.08, {Size = UDim2.new(a, 0, 1, 0)})
-		tween(knob, 0.08, {Position = UDim2.new(a, 0, 0.5, 0)})
+		tween(fill, 0.1, {Size = UDim2.new(a, 0, 1, 0)})
 		if not valBox:IsFocused() then valBox.Text = fmt(v) end
 		if fire and callback then task.spawn(callback, v) end
 	end
-
-	-- увеличенная зона захвата (выше трека)
-	local hit = Instance.new("TextButton")
-	hit.Size = UDim2.new(1, 0, 0, 24)
-	hit.Position = UDim2.new(0, 0, 0, 26)
-	hit.BackgroundTransparency = 1
-	hit.Text = ""
-	hit.Parent = r
 
 	local dragging = false
 	local function upd(inp)
 		local a = math.clamp((inp.Position.X - track.AbsolutePosition.X)/track.AbsoluteSize.X, 0, 1)
 		set(min + a*(max-min), true)
 	end
-	hit.InputBegan:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 then dragging=true; upd(i) end end)
+	track.InputBegan:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 then dragging=true; upd(i) end end)
 	UserInputService.InputEnded:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 then if dragging then dragging=false; saveConfig() end end end)
 	UserInputService.InputChanged:Connect(function(i) if dragging and i.UserInputType==Enum.UserInputType.MouseMovement then upd(i) end end)
 
-	-- ручной ввод числа
+	-- ручной ввод числа по клику на значение
 	valBox.Focused:Connect(function() valBox.Text = tostring(Config[key] or min) end)
 	valBox.FocusLost:Connect(function()
 		local n = tonumber((valBox.Text:gsub("[^%d%.%-]", "")))
@@ -1390,9 +1332,8 @@ function Comp.slider(parent, text, key, min, max, step, suffix, callback)
 	end)
 
 	set(Config[key] or min, false)
-	-- hover: подсветка
-	hit.MouseEnter:Connect(function() tween(track,0.12,{Size=UDim2.new(1,0,0,10)}); tween(knob,0.12,{Size=UDim2.fromOffset(18,18)}) end)
-	hit.MouseLeave:Connect(function() tween(track,0.12,{Size=UDim2.new(1,0,0,8)}); tween(knob,0.12,{Size=UDim2.fromOffset(16,16)}) end)
+	track.MouseEnter:Connect(function() tween(track,0.12,{Size=UDim2.new(1,0,0,9)}); tween(valBox,0.12,{TextColor3=Theme.Accent}) end)
+	track.MouseLeave:Connect(function() tween(track,0.12,{Size=UDim2.new(1,0,0,6)}); tween(valBox,0.12,{TextColor3=Theme.Accent2}) end)
 	return { set = set, label = lbl }
 end
 
@@ -1703,13 +1644,13 @@ local farmSec = Comp.section(farmPage, nil)
 -- автобид (свёрнут, ПКМ -> поднастройки)
 Comp.module(farmSec, T("auto_bid"), "autoBid", function(p)
 	Comp.dropdown(p, T("bid_area"), "bidArea", areaNames)
-	Comp.slider(p, T("min_bid"), "minBid", 0, 50000, 1000, "$")
-	Comp.slider(p, T("max_bid"), "maxBid", 0, 100000, 2500, "$")
+	Comp.slider(p, T("min_bid"), "minBid", 0, 50000, 50, "$")
+	Comp.slider(p, T("max_bid"), "maxBid", 0, 100000, 50, "$")
 	Comp.slider(p, T("bid_speed"), "bidSpeed", 0.1, 1.5, 0.05, "s")
 	Comp.toggle(p, T("bid_new"), "bidNew")
 	Comp.toggle(p, T("kill_npc"), "killNpc")
 	Comp.toggle(p, T("auto_buyitems"), "autoBuyItems")
-	Comp.slider(p, T("profit_min"), "profitMin", 0, 100, 10, "%")
+	Comp.slider(p, T("profit_min"), "profitMin", 0, 100, 5, "%")
 	Comp.toggle(p, T("keep_safes"), "keepSafes")
 end)
 Comp.module(farmSec, T("auto_fish"), "autoFish", function(p)
@@ -1727,14 +1668,14 @@ Comp.module(sellSec, T("auto_sell"), "autoSell", function(p)
 	Comp.toggle(p, T("keep_trophy"), "keepTrophy")
 	Comp.toggle(p, T("keep_safes"), "keepSafes")
 	Comp.toggle(p, T("keep_rods"), "keepRods")
-	Comp.slider(p, T("max_sell"), "maxSell", 0, 100000, 2500, "$")  -- не продавать дороже X (0 = без лимита)
+	Comp.slider(p, T("max_sell"), "maxSell", 0, 100000, 50, "$")  -- не продавать дороже X (0 = без лимита)
 end)
 Comp.module(sellSec, T("auto_stock"), "autoStock", function(p)
 	Comp.toggle(p, T("return_full"), "returnWhenFull")
 	Comp.toggle(p, T("auto_trade"), "autoTrade")
 	Comp.toggle(p, T("keep_trophy"), "keepTrophy")
 	Comp.toggle(p, T("keep_rods"), "keepRods")
-	Comp.slider(p, T("trade_min"), "tradeMinPercent", 0, 100, 10, "%")
+	Comp.slider(p, T("trade_min"), "tradeMinPercent", 0, 100, 5, "%")
 end)
 Comp.button(sellSec, T("sell_now"), Theme.Success, function() _G.__VH_sellNow() end)
 
@@ -1755,10 +1696,10 @@ end)
 -- =========== PROCESS ===========
 local procSec = Comp.section(processPage, nil)
 Comp.module(procSec, T("auto_wash"), "autoWash", function(p)
-	Comp.slider(p, T("wash_min"), "washMin", 0, 50000, 1000, "$")
+	Comp.slider(p, T("wash_min"), "washMin", 0, 50000, 25, "$")
 end)
 Comp.module(procSec, T("auto_grade"), "autoGrade", function(p)
-	Comp.slider(p, T("grade_min"), "gradeMin", 0, 50000, 1000, "$")
+	Comp.slider(p, T("grade_min"), "gradeMin", 0, 50000, 25, "$")
 end)
 Comp.module(procSec, T("auto_repair"), "autoRepair", nil)
 -- «Источник» убран: обработка всегда берёт из инвентаря
@@ -1808,10 +1749,10 @@ end)
 -- =========== OTHER ===========
 local moveSec = Comp.section(otherPage, T("tab_other"))
 Comp.module(moveSec, T("fly"), "fly", function(p)
-	Comp.slider(p, T("fly_speed"), "flySpeed", 16, 250, 10)
+	Comp.slider(p, T("fly_speed"), "flySpeed", 16, 250, 2)
 end, function(v) _G.__VH_setFly(v) end)
-Comp.slider(moveSec, T("walkspeed"), "walkSpeed", 16, 200, 8, "", function(v) _G.__VH_setWalk(v) end)
-Comp.slider(moveSec, T("jumppower"), "jumpPower", 50, 350, 25, "", function(v) _G.__VH_setJump(v) end)
+Comp.slider(moveSec, T("walkspeed"), "walkSpeed", 16, 200, 2, "", function(v) _G.__VH_setWalk(v) end)
+Comp.slider(moveSec, T("jumppower"), "jumpPower", 50, 350, 5, "", function(v) _G.__VH_setJump(v) end)
 Comp.toggle(moveSec, T("noclip"), "noclip", function(v) _G.__VH_setNoclip(v) end)
 Comp.toggle(moveSec, T("inf_jump"), "infJump")
 Comp.toggle(moveSec, T("anti_afk"), "antiAfk")
@@ -2253,15 +2194,72 @@ local function mouseRelease()
 	else pcall(function() VirtualInputManager:SendMouseButtonEvent(0,0,0,false,game,0) end) end
 end
 
-local function equipRod()
+local function getRodTool()
 	local char = LocalPlayer.Character
 	local bp = LocalPlayer:FindFirstChild("Backpack")
 	local function isRod(t) return t:IsA("Tool") and (t.Name:lower():find("rod") or t.Name:lower():find("fish")) end
-	if char then for _, t in ipairs(char:GetChildren()) do if isRod(t) then return true end end end
-	if bp then for _, t in ipairs(bp:GetChildren()) do if isRod(t) then
-		local hum = char and char:FindFirstChildOfClass("Humanoid")
-		if hum then hum:EquipTool(t); return true end
-	end end end
+	if char then for _, t in ipairs(char:GetChildren()) do if isRod(t) then return t, true end end end
+	if bp then for _, t in ipairs(bp:GetChildren()) do if isRod(t) then return t, false end end end
+	return nil
+end
+local function equipRod()
+	-- уже в руках?
+	local tool, inHand = getRodTool()
+	if tool and inHand then return true end
+	if tool and not inHand then
+		local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+		if hum then hum:EquipTool(tool); return true end
+	end
+	-- удочка в игровом инвентаре -> экипировать через Hotbar.EquipTool(guid)
+	local inv = API.getInventory()
+	local equipF = ev("Hotbar.EquipTool")
+	for guid, e in pairs(inv) do
+		local def = Items and Items[tostring(e.ItemId)]
+		local nm = (def and def.Name or ""):lower()
+		if (def and def.Category == "Tool" and (nm:find("rod") or nm:find("fish"))) or nm:find("rod") then
+			if equipF then pcall(function() equipF:FireServer(guid) end) end
+			task.wait(0.8)
+			local t2 = getRodTool()
+			if t2 then return true end
+		end
+	end
+	return false
+end
+-- точка на воде перед игроком + сама вода (для FishingCast:FireServer(water, pos))
+local function getCastTarget()
+	local hrp = getHRP(); if not hrp then return nil end
+	local water
+	for _, d in ipairs(Workspace:GetDescendants()) do
+		if d:IsA("BasePart") and d.Name == "Water" then water = d; break end
+	end
+	if not water then return nil end
+	local top = water.Position.Y + water.Size.Y/2
+	local fwd = hrp.CFrame.LookVector; fwd = Vector3.new(fwd.X, 0, fwd.Z)
+	if fwd.Magnitude < 0.1 then fwd = Vector3.new(0,0,-1) end
+	fwd = fwd.Unit
+	local point = Vector3.new(hrp.Position.X, top, hrp.Position.Z) + fwd * 18
+	return water, point
+end
+-- телепорт к рыбаку (а не в центр озера)
+local function tpToFisherman()
+	local fm
+	for _, d in ipairs(Workspace:GetDescendants()) do
+		if d:IsA("Model") and d.Name == "Fisherman" then fm = d; break end
+	end
+	if fm then
+		local pp = fm:FindFirstChild("HumanoidRootPart") or fm.PrimaryPart or fm:FindFirstChildWhichIsA("BasePart")
+		local hrp = getHRP()
+		if pp and hrp then
+			if (hrp.Position - pp.Position).Magnitude > 12 then  -- не телепортим если уже рядом
+				hrp.CFrame = CFrame.new(pp.Position + Vector3.new(0, 3, 5))
+			end
+			return true
+		end
+	end
+	-- запасной вариант: POI Lake
+	for _, poi in ipairs(API.getPOIs()) do
+		if poi.name == "Lake" then teleport(poi.position); return true end
+	end
 	return false
 end
 
@@ -2332,12 +2330,18 @@ task.spawn(function()
 			end
 			if not equipRod() then task.wait(2)
 			else
-				for _, poi in ipairs(API.getPOIs()) do
-					if poi.name == "Lake" then teleport(poi.position); break end
+				tpToFisherman()  -- к рыбаку, не в центр озера; не спамит если уже рядом
+				task.wait(0.5)
+				-- уже идёт миниигра? тогда не забрасываем повторно
+				local reeling = PlayerGui:FindFirstChild("FishingReelGui") ~= nil
+				if not reeling then
+					local water, point = getCastTarget()
+					local cast = ev("Misc.FishingCast")
+					if cast and water and point then
+						pcall(function() cast:FireServer(water, point) end)  -- сигнатура: (вода, точка)
+					end
 				end
-				local cast = ev("Misc.FishingCast")
-				if cast then pcall(function() cast:FireServer() end) end
-				task.wait(4)
+				task.wait(3)
 			end
 		else
 			task.wait(1)
