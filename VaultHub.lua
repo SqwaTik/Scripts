@@ -68,7 +68,7 @@ local L = {
 		-- farm
 		auto_bid="Авто-бид (аукцион)", min_bid="Скип, если ставка <",
 		max_bid="Макс. ставка (стоп)", bid_area="Локация аукциона",
-		bid_new="Выкупать новые (коллекция)",
+		bid_new="Выкупать новые (коллекция)", kill_npc="Убирать NPC (Kick)",
 		auto_buyitems="Выкупать предметы в +", profit_min="Мин. профит",
 		auto_fish="Авто-рыбалка", auto_collect="Авто-сбор всего",
 		auto_collect_lost="Авто-сбор спрятанного", lost_sell="Продавать собранное",
@@ -124,7 +124,7 @@ local L = {
 		quick="Quick Actions", uptime="Uptime",
 		auto_bid="Auto Bid (auction)", min_bid="Skip if bid <",
 		max_bid="Max bid (stop)", bid_area="Auction area",
-		bid_new="Buy new (collection)",
+		bid_new="Buy new (collection)", kill_npc="Kick NPC bidders",
 		auto_buyitems="Buy profitable items", profit_min="Min profit",
 		auto_fish="Auto Fishing", auto_collect="Auto Collect All",
 		auto_collect_lost="Auto Collect Lost & Found", lost_sell="Sell collected",
@@ -175,7 +175,7 @@ local L = {
 		quick="Acciones rápidas", uptime="Tiempo activo",
 		auto_bid="Auto Puja (subasta)", min_bid="Saltar si puja <",
 		max_bid="Puja máx. (parar)", bid_area="Zona de subasta",
-		bid_new="Comprar nuevos (colección)",
+		bid_new="Comprar nuevos (colección)", kill_npc="Echar NPC (Kick)",
 		auto_buyitems="Comprar objetos rentables", profit_min="Beneficio mín.",
 		auto_fish="Auto Pesca", auto_collect="Auto Recoger Todo",
 		auto_collect_lost="Auto Recoger Perdidos", lost_sell="Vender lo recogido",
@@ -223,7 +223,7 @@ local Config = {
 	keybind = "RightShift",
 	-- farm
 	autoBid = false, minBid = 0, maxBid = 25000, bidSpeed = 0.35,
-	bidArea = "", autoBuyItems = false, profitMin = 20, bidNew = false,
+	bidArea = "", autoBuyItems = false, profitMin = 20, bidNew = false, killNpc = false,
 	autoFish = false, autoCollectAll = false,
 	autoCollectLost = false, lostSell = false,
 	-- trade / shop management
@@ -592,8 +592,8 @@ local ICON = {
 	tp      = "rbxassetid://120644819082905",  -- Area (game)
 	shop    = "rbxassetid://15133445964",       -- Energy (game)
 	settings= "rbxassetid://10734950309",
-	quest   = "rbxassetid://10723345447",
-	other   = "rbxassetid://10734948008",
+	quest   = "",  -- векторный значок (рисуется), чтобы не было пустого квадрата
+	other   = "",  -- векторный значок (рисуется)
 	close   = "rbxassetid://7733658504",
 	logo    = "rbxassetid://116204155184116",
 }
@@ -912,8 +912,8 @@ end
 local langMenu = Instance.new("Frame")
 langMenu.Size = UDim2.fromOffset(88, 0)
 langMenu.AutomaticSize = Enum.AutomaticSize.Y
-langMenu.Position = UDim2.new(1, -78, 0, 52)
-langMenu.AnchorPoint = Vector2.new(0, 0)
+langMenu.Position = UDim2.new(1, -12, 0, 50)
+langMenu.AnchorPoint = Vector2.new(1, 0)  -- правый край у границы окна, не вылезает вправо
 langMenu.BackgroundColor3 = Theme.SurfaceHl
 langMenu.Visible = false
 langMenu.ZIndex = 5000
@@ -987,31 +987,19 @@ local pages = {}
 local tabButtons = {}
 local currentTab
 
--- общий индикатор активной вкладки (плавно съезжает; внутри tabHolder -> скроллится вместе)
-local tabIndicator = Instance.new("Frame")
-tabIndicator.Name = "TabIndicator"
-tabIndicator.Size = UDim2.fromOffset(3, 22)
-tabIndicator.Position = UDim2.new(0, 0, 0, 13)
-tabIndicator.BackgroundColor3 = Theme.Accent
-tabIndicator.BorderSizePixel = 0
-tabIndicator.ZIndex = 6
-tabIndicator.Parent = tabHolder
-corner(tabIndicator, 2)
-local tig = Instance.new("UIGradient"); tig.Color = ColorSequence.new(Theme.Accent, Theme.Accent2); tig.Rotation = 90; tig.Parent = tabIndicator
 
 local function selectTab(name)
 	currentTab = name
 	for n, t in pairs(tabButtons) do
 		local active = (n == name)
 		tween(t.btn, 0.2, {BackgroundColor3 = active and Theme.Surface or Theme.Panel})
-		if t.bar then t.bar.BackgroundTransparency = 1 end
+		-- индикатор активной вкладки = её собственная полоска (скроллится вместе с кнопкой)
+		if t.bar then tween(t.bar, 0.2, {BackgroundTransparency = active and 0 or 1}) end
 		tween(t.ico, 0.2, {ImageColor3 = active and Theme.Accent or Theme.SubText})
+		for _, g in ipairs(t.ico:GetChildren()) do  -- векторные значки (quest/other)
+			if g.Name == "G" then tween(g, 0.2, {BackgroundColor3 = active and Theme.Accent or Theme.SubText}) end
+		end
 		tween(t.lbl, 0.2, {TextColor3 = active and Theme.Text or Theme.SubText})
-	end
-	local t = tabButtons[name]
-	if t then
-		local y = 4 + (t.btn.LayoutOrder - 1) * 44 + 9  -- внутри canvas tabHolder
-		tween(tabIndicator, 0.3, {Position = UDim2.new(0, 0, 0, y)}, Enum.EasingStyle.Back)
 	end
 	for n, pg in pairs(pages) do pg.Visible = (n == name) end
 	pageTitle.Text = T("tab_"..name)
@@ -1048,6 +1036,43 @@ local function addTab(name, iconKey)
 	ico.Image = ICON[iconKey] or ""
 	ico.ImageColor3 = Theme.SubText
 	ico.Parent = btn
+	-- векторные значки для вкладок без картинки (quest/other) — без «квадратика»
+	if ico.Image == "" then
+		if iconKey == "other" then
+			-- три точки (kebab "ещё")
+			for i = 0, 2 do
+				local dot = Instance.new("Frame")
+				dot.Size = UDim2.fromOffset(4, 4)
+				dot.AnchorPoint = Vector2.new(0.5, 0.5)
+				dot.Position = UDim2.new(0.5, 0, 0.5, (i-1)*7)
+				dot.BackgroundColor3 = Theme.SubText
+				dot.BorderSizePixel = 0
+				dot.Name = "G"
+				dot.Parent = ico
+				corner(dot, 2)
+			end
+		elseif iconKey == "quest" then
+			-- восклицательный знак (квест/важное)
+			local bar = Instance.new("Frame")
+			bar.Size = UDim2.fromOffset(3, 11)
+			bar.AnchorPoint = Vector2.new(0.5, 0)
+			bar.Position = UDim2.new(0.5, 0, 0.5, -8)
+			bar.BackgroundColor3 = Theme.SubText
+			bar.BorderSizePixel = 0
+			bar.Name = "G"
+			bar.Parent = ico
+			corner(bar, 1)
+			local dot = Instance.new("Frame")
+			dot.Size = UDim2.fromOffset(3, 3)
+			dot.AnchorPoint = Vector2.new(0.5, 1)
+			dot.Position = UDim2.new(0.5, 0, 0.5, 8)
+			dot.BackgroundColor3 = Theme.SubText
+			dot.BorderSizePixel = 0
+			dot.Name = "G"
+			dot.Parent = ico
+			corner(dot, 1)
+		end
+	end
 
 	local lbl = Instance.new("TextLabel")
 	lbl.Name = "Lbl"
@@ -1473,10 +1498,19 @@ function Comp.module(parent, text, key, subBuild, callback)
 		tween(wrap, 0.12, {BackgroundColor3 = Theme.Surface})  -- развёрнутый/свёрнутый — без подсветки наведения
 		if expanded then
 			panel.Visible = true
+			panel.AutomaticSize = Enum.AutomaticSize.None
+			panel.ClipsDescendants = true
 			local h = inner.AbsoluteSize.Y
 			if h < 4 then h = 0 end
 			tween(panel, 0.22, {Size = UDim2.new(1, 0, 0, h)}, Enum.EasingStyle.Quad)
+			-- после анимации отдаём высоту авто-размеру: вложенные dropdown'ы раскрываются без обрезки
+			task.delay(0.24, function()
+				if expanded then panel.ClipsDescendants = false; panel.AutomaticSize = Enum.AutomaticSize.Y end
+			end)
 		else
+			panel.AutomaticSize = Enum.AutomaticSize.None
+			panel.ClipsDescendants = true
+			panel.Size = UDim2.new(1, 0, 0, inner.AbsoluteSize.Y)  -- зафиксировать текущую высоту перед схлопыванием
 			tween(panel, 0.18, {Size = UDim2.new(1, 0, 0, 0)}, Enum.EasingStyle.Quad)
 			task.delay(0.18, function() if not expanded then panel.Visible = false end end)
 		end
@@ -1550,6 +1584,7 @@ Comp.module(farmSec, T("auto_bid"), "autoBid", function(p)
 	Comp.slider(p, T("max_bid"), "maxBid", 0, 100000, 50, "$")
 	Comp.slider(p, T("bid_speed"), "bidSpeed", 0.1, 1.5, 0.05, "s")
 	Comp.toggle(p, T("bid_new"), "bidNew")
+	Comp.toggle(p, T("kill_npc"), "killNpc")
 	Comp.toggle(p, T("auto_buyitems"), "autoBuyItems")
 	Comp.slider(p, T("profit_min"), "profitMin", 0, 100, 5, "%")
 	Comp.toggle(p, T("keep_safes"), "keepSafes")
@@ -1870,12 +1905,33 @@ do
 		if type(v)=="number" then currentBid = v
 		elseif type(v)=="table" and v.amount then currentBid = v.amount end
 	end) end
-	-- авто-забор выигранных предметов
-	local pickItem = ev("Auction.AuctionPickupItem")
-	if pickItem then pickItem.OnClientEvent:Connect(function(...)
-		local args = {...}
-		pcall(function() pickItem:FireServer(table.unpack(args)) end)
-	end) end
+	-- NB: AuctionPickupItem — HUD-уведомление о прибыли, НЕ команда. Раньше зря перефаирили его на сервер.
+end
+
+-- кикнуть NPC-участников аукциона (они дети гаража: Model+Humanoid, кроме Auctioneer)
+local function kickAuctionNPCs(garageModel)
+	if not garageModel then return end
+	local kickF = ev("Auction.UseKickNPC")
+	if not kickF then return end
+	for _, npc in ipairs(garageModel:GetChildren()) do
+		if not (Config.killNpc and Config.autoBid) then break end
+		if npc:IsA("Model") and npc.Name ~= "Auctioneer" and npc:FindFirstChildOfClass("Humanoid") then
+			local ok, res = pcall(function() return kickF:InvokeServer(npc.Name) end)
+			if ok and res == "limit" then break end  -- лимит киков на этот аукцион исчерпан
+			task.wait(0.2)
+		end
+	end
+end
+
+-- забрать выигранные предметы из гаража (промпт "Add to Vehicle"/"Collect")
+local function collectWonItems(garageModel)
+	if not garageModel then return end
+	for _, m in ipairs(garageModel:GetDescendants()) do
+		if m:IsA("ProximityPrompt") and (m.ActionText == "Add to Vehicle" or m.ActionText == "Collect" or m.ActionText == "Pick Up") then
+			pcall(function() fireproximityprompt(m) end)
+			task.wait(0.2)
+		end
+	end
 end
 
 -- АВТО-ПОПАДАНИЕ по бид-бару: читаем реальные позиции курсора и зоны,
@@ -2015,6 +2071,11 @@ local function doGarageAuction(g)
 		API.leaveAuction(); task.wait(0.3); return
 	end
 
+	-- Kill NPC: убираем конкурентов, чтобы не перебивали (лимит киков на аукцион учитывается сервером)
+	if Config.killNpc then
+		task.spawn(function() kickAuctionNPCs(g.model) end)
+	end
+
 	-- СТОИМ на гараже и ждём конца торгов; авто-хит (Heartbeat) сам бидит в зоне
 	local bt = os.clock()
 	repeat
@@ -2024,7 +2085,11 @@ local function doGarageAuction(g)
 		end
 		task.wait(0.2)
 	until (not areaActive) or (not Config.autoBid) or (os.clock()-bt) > 35
-	task.wait(0.6) -- дать забрать предметы (auto-pickup на событии)
+	task.wait(0.6)
+	-- забрать выигранные предметы из гаража (нужна тачка рядом — подгоним)
+	pcall(function() API.spawnVehicle() end)
+	task.wait(0.5)
+	collectWonItems(g.model)
 end
 
 task.spawn(function()
@@ -2152,70 +2217,94 @@ task.spawn(function()
 	end
 end)
 
--- ========== АВТО-СБОР LOST & FOUND (спрятанные/потерянные предметы) ==========
-task.spawn(function()
-	while ScreenGui.Parent do
-		if Config.autoCollectLost then
-			local hrp = getHRP()
-			if not hrp then task.wait(2); continue end
-			-- папка _LostItems содержит все разбросанные предметы
-			local lostFolder
-			for _, d in ipairs(Workspace:GetDescendants()) do
-				if d.Name == "_LostItems" and d:IsA("Folder") then lostFolder = d; break end
-			end
-			if not lostFolder or #lostFolder:GetChildren() == 0 then task.wait(5); continue end
-			-- заспавним тачку один раз перед сбором (чтобы "Add to Vehicle" сработал)
-			API.spawnVehicle()
-			task.wait(1.2)
-			-- собираем по одному
-			for _, item in ipairs(lostFolder:GetChildren()) do
-				if not Config.autoCollectLost then break end
-				-- проверяем вес (CarryWeight vs CarryWeightCapacity)
-				local weight = LocalPlayer:GetAttribute("CarryWeight") or 0
-				local cap = LocalPlayer:GetAttribute("CarryWeightCapacity") or 999
-				if weight >= cap then
-					-- полный вес -> разгрузка или продажа
-					if Config.lostSell and Config.autoSell then
-						_G.__VH_sellNow()
-						task.wait(3)
-					elseif Config.autoStock then
-						-- телепорт в базу и выгрузка
-						for _, poi in ipairs(API.getPOIs()) do
-							if poi.name:find("Warehouse") or poi.name:find("Plot") then
-								teleport(poi.position); task.wait(1.5); break
-							end
-						end
-					else
-						task.wait(2)  -- ждём, пока игрок сам разгрузится
-					end
-				end
-				-- телепорт к предмету
-				local part = item.PrimaryPart or item:FindFirstChildWhichIsA("BasePart")
-				if part then
-					hrp.CFrame = CFrame.new(part.Position + Vector3.new(0, 2, 0))
-					task.wait(0.5)
-					-- если предмет далеко от тачки → респавним тачку рядом
-					API.spawnVehicle()
-					task.wait(0.8)
-					-- дёргаем промпт "Add to Vehicle"
-					local prompt
-					for _, d in ipairs(item:GetDescendants()) do
-						if d:IsA("ProximityPrompt") and d.ActionText == "Add to Vehicle" then
-							prompt = d; break
-						end
-					end
-					if prompt then
-						pcall(function() fireproximityprompt(prompt) end)
-						task.wait(0.7)
-					end
-				end
-			end
-			task.wait(2)
-		else
-			task.wait(2)
+-- ========== АВТО-СБОР LOST & FOUND (умный: тачка рядом, вес/выгрузка/продажа) ==========
+do
+	local failCount = {}  -- [item]=неудачные попытки (чтобы не зацикливаться на нерабочем)
+
+	local function findLostFolder()
+		return Workspace:FindFirstChild("_LostItems", true)
+	end
+	local function findMyVehicle()
+		local guid = LocalPlayer:GetAttribute("EquippedVehicle")
+		if not guid then return nil end
+		for _, d in ipairs(Workspace:GetDescendants()) do
+			if d:IsA("Model") and d:GetAttribute("GUID") == guid then return d end
+		end
+		return nil
+	end
+	local function moveVehicleNear(pos)
+		local v = findMyVehicle()
+		if v then pcall(function() v:PivotTo(CFrame.new(pos + Vector3.new(5, 3, 0))) end); return true end
+		return false
+	end
+	local function inventoryFull()
+		local cnt = LocalPlayer:GetAttribute("InventoryCount") or 0
+		local cap = LocalPlayer:GetAttribute("InventoryCap") or 999
+		return cnt >= cap
+	end
+	local function vehicleFull()
+		return (vehMaxWeight and vehMaxWeight > 0) and (vehWeight >= vehMaxWeight * 0.95)
+	end
+	-- выгрузить тачку в инвентарь; если инвентарь полон и разрешена продажа — продать
+	local function unloadOrSell()
+		API.transferVehicleItems(); task.wait(1.2)
+		if Config.lostSell and inventoryFull() then
+			_G.__VH_sellNow(); task.wait(2)
 		end
 	end
-end)
+
+	task.spawn(function()
+		while ScreenGui.Parent do
+			if not Config.autoCollectLost then task.wait(1.5); continue end
+			local hrp = getHRP()
+			local folder = findLostFolder()
+			if not (hrp and folder) then task.wait(3); continue end
+			-- только НАШИ предметы (Owner == наш UserId), у которых ещё не исчерпан лимит попыток
+			local mine = {}
+			for _, item in ipairs(folder:GetChildren()) do
+				if item:IsA("Model")
+					and (item:GetAttribute("Owner") == LocalPlayer.UserId or item:GetAttribute("LostOwnerId") == LocalPlayer.UserId)
+					and (failCount[item] or 0) < 3 then
+					mine[#mine+1] = item
+				end
+			end
+			if #mine == 0 then task.wait(4); continue end
+			pcall(function() API.spawnVehicle() end); task.wait(1)
+			local consecFails = 0
+			for _, item in ipairs(mine) do
+				if not Config.autoCollectLost then break end
+				if item.Parent then  -- ещё не собран
+					-- переполнение тачки/инвентаря ИЛИ подряд неудачи (тачка полна) -> выгрузить/продать
+					if vehicleFull() or inventoryFull() or consecFails >= 3 then
+						unloadOrSell(); consecFails = 0
+					end
+					local prompt
+					for _, d in ipairs(item:GetDescendants()) do
+						if d:IsA("ProximityPrompt") and d.ActionText == "Add to Vehicle" then prompt = d; break end
+					end
+					local part = item.PrimaryPart or item:FindFirstChildWhichIsA("BasePart")
+					if prompt and part then
+						hrp.CFrame = CFrame.new(part.Position + Vector3.new(0, 2, 0))
+						task.wait(0.35)
+						moveVehicleNear(part.Position)  -- подгоняем тачку вплотную
+						task.wait(0.4)
+						pcall(function() fireproximityprompt(prompt) end)
+						task.wait(0.55)
+						if item.Parent then  -- не собрался
+							failCount[item] = (failCount[item] or 0) + 1
+							consecFails = consecFails + 1
+						else
+							consecFails = 0
+						end
+					else
+						failCount[item] = (failCount[item] or 0) + 1
+					end
+				end
+			end
+			task.wait(1.5)
+		end
+	end)
+end
 
 -- ========== ДВИЖЕНИЕ: Fly / WalkSpeed / Jump / NoClip / InfJump ==========
 local flyConn, flyBV, flyBG
@@ -2228,7 +2317,7 @@ function _G.__VH_setFly(on)
 	if flyBG then flyBG:Destroy(); flyBG=nil end
 	if not (on and hrp and hum) then return end
 	flyBV = Instance.new("BodyVelocity"); flyBV.MaxForce = Vector3.new(1,1,1)*9e9; flyBV.Velocity = Vector3.zero; flyBV.Parent = hrp
-	flyBG = Instance.new("BodyGyro"); flyBG.MaxForce = Vector3.new(1,1,1)*9e9; flyBG.P = 9e4; flyBG.Parent = hrp
+	flyBG = Instance.new("BodyGyro"); flyBG.MaxTorque = Vector3.new(1,1,1)*9e9; flyBG.P = 9e4; flyBG.Parent = hrp
 	flyConn = RunService.RenderStepped:Connect(function()
 		if not Config.fly then return end
 		local cam = Workspace.CurrentCamera
@@ -2458,7 +2547,7 @@ do
 	searchBox.AnchorPoint = Vector2.new(0, 0.5)
 	searchBox.BackgroundColor3 = Theme.Surface
 	searchBox.Text = ""
-	searchBox.PlaceholderText = "🔍 "..(Locale=="ru" and "Поиск" or (Locale=="es" and "Buscar" or "Search"))
+	searchBox.PlaceholderText = (Locale=="ru" and "Поиск" or (Locale=="es" and "Buscar" or "Search"))
 	searchBox.PlaceholderColor3 = Theme.SubText
 	searchBox.Font = Enum.Font.Gotham
 	searchBox.TextSize = 12
@@ -2467,7 +2556,22 @@ do
 	searchBox.ClearTextOnFocus = false
 	searchBox.Parent = topBar
 	corner(searchBox, 8); stroke(searchBox, Theme.Stroke, 1, 0.3)
-	local sbp = Instance.new("UIPadding"); sbp.PaddingLeft=UDim.new(0,10); sbp.PaddingRight=UDim.new(0,10); sbp.Parent=searchBox
+	local sbp = Instance.new("UIPadding"); sbp.PaddingLeft=UDim.new(0,28); sbp.PaddingRight=UDim.new(0,8); sbp.Parent=searchBox
+		local lens = Instance.new("Frame")
+		lens.Size = UDim2.fromOffset(11, 11)
+		lens.Position = UDim2.new(0, 9, 0.5, 0)
+		lens.AnchorPoint = Vector2.new(0, 0.5)
+		lens.BackgroundTransparency = 1
+		lens.Parent = searchBox
+		stroke(lens, Theme.SubText, 1.5, 0); corner(lens, 6)
+		local handle = Instance.new("Frame")
+		handle.Size = UDim2.fromOffset(5, 1.5)
+		handle.AnchorPoint = Vector2.new(0, 0.5)
+		handle.Position = UDim2.new(1, -1, 1, -1)
+		handle.Rotation = 45
+		handle.BackgroundColor3 = Theme.SubText
+		handle.BorderSizePixel = 0
+		handle.Parent = lens
 
 	-- текст искомого элемента: кнопка -> её текст; иначе первый осмысленный TextLabel (слева)
 	local function nodeText(node)
@@ -2479,7 +2583,7 @@ do
 		end
 		return nil
 	end
-	-- индекс всех модулей/тогглов/кнопок по вкладкам
+	-- индекс модулей/тогглов/кнопок + хэйстек из всех языков (умный поиск независимо от текущего языка)
 	local searchIndex = {}
 	for tabName, pg in pairs(pages) do
 		for _, sec in ipairs(pg:GetChildren()) do
@@ -2487,11 +2591,27 @@ do
 				for _, child in ipairs(sec:GetChildren()) do
 					if child:IsA("Frame") or child:IsA("TextButton") then
 						local txt = nodeText(child)
-						if txt then searchIndex[#searchIndex+1] = {tab=tabName, node=child, sec=sec, text=txt:lower()} end
+						if txt then
+							-- хэйстек: видимый текст + перевод вкладки во всех языках
+							local hay = txt:lower().." "
+							for _, lng in ipairs({"ru","en","es"}) do
+								local tl = L[lng]
+								if tl then hay = hay..(tl["tab_"..tabName] or "").." " end
+							end
+							searchIndex[#searchIndex+1] = {tab=tabName, node=child, sec=sec, hay=hay:lower()}
+						end
 					end
 				end
 			end
 		end
+	end
+
+	-- совпадение: каждое слово запроса должно встретиться где-то в хэйстеке (порядок не важен)
+	local function matches(hay, words)
+		for _, w in ipairs(words) do
+			if not hay:find(w, 1, true) then return false end
+		end
+		return true
 	end
 
 	local function doSearch(q)
@@ -2500,14 +2620,22 @@ do
 			for _, e in ipairs(searchIndex) do e.node.Visible = true; e.sec.Visible = true end
 			return
 		end
-		local secHas, firstTab = {}, nil
+		-- разбиваем запрос на слова
+		local words = {}
+		for w in q:gmatch("%S+") do words[#words+1] = w end
+		local secHas, tabHas, firstTab = {}, {}, nil
 		for _, e in ipairs(searchIndex) do
-			local match = e.text:find(q, 1, true) ~= nil
-			e.node.Visible = match
-			if match then secHas[e.sec] = true; if not firstTab then firstTab = e.tab end end
+			local m = matches(e.hay, words)
+			e.node.Visible = m
+			if m then
+				secHas[e.sec] = true
+				tabHas[e.tab] = true
+				if not firstTab then firstTab = e.tab end
+			end
 		end
 		for _, e in ipairs(searchIndex) do e.sec.Visible = (secHas[e.sec] == true) end
-		if firstTab and currentTab ~= firstTab then selectTab(firstTab) end
+		-- прыгаем на вкладку с совпадением только если на текущей ничего не нашлось
+		if firstTab and not tabHas[currentTab] then selectTab(firstTab) end
 	end
 	searchBox:GetPropertyChangedSignal("Text"):Connect(function() doSearch(searchBox.Text) end)
 end
