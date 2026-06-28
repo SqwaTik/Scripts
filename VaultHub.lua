@@ -480,10 +480,10 @@ local function unloadVehicleSmart(sellWhenFull)
 		if _G.__VH_sellNow then _G.__VH_sellNow() end; task.wait(2)
 	end
 end
--- подогнать тачку вплотную к точке (чтобы сработал промпт "Add to Vehicle")
+-- подогнать тачку вплотную к точке (чтобы сработал промпт "Add to Vehicle"; радиус ~5.6 -> ставим ~3)
 local function nudgeVehicleTo(pos)
 	local v = API.findMyVehicle()
-	if v then pcall(function() v:PivotTo(CFrame.new(pos + Vector3.new(5, 3, 0))) end); return true end
+	if v then pcall(function() v:PivotTo(CFrame.new(pos + Vector3.new(3, 2, 0))) end); return true end
 	return false
 end
 
@@ -964,7 +964,7 @@ end
 
 -- меню языка поверх ВСЕГО (parent Main, максимальный ZIndex)
 local langMenu = Instance.new("Frame")
-langMenu.Size = UDim2.fromOffset(150, 0)
+langMenu.Size = UDim2.fromOffset(86, 0)
 langMenu.AutomaticSize = Enum.AutomaticSize.Y
 langMenu.Position = UDim2.new(1, -12, 0, 50)
 langMenu.AnchorPoint = Vector2.new(1, 0)  -- правый край у границы окна, не вылезает вправо
@@ -975,15 +975,49 @@ langMenu.Parent = Main
 corner(langMenu, 8); stroke(langMenu, Theme.Stroke, 1, 0)
 local lmp = Instance.new("UIPadding"); lmp.PaddingTop=UDim.new(0,4);lmp.PaddingBottom=UDim.new(0,4);lmp.PaddingLeft=UDim.new(0,4);lmp.PaddingRight=UDim.new(0,4); lmp.Parent=langMenu
 local lml = Instance.new("UIListLayout"); lml.Padding=UDim.new(0,2); lml.Parent=langMenu
-local LANG_NAME = { ru="Русский", en="English", es="Español" }
+-- векторный мини-флаг (всегда рендерится, без emoji-tofu)
+local function makeFlag(parent, lang)
+	local f = Instance.new("Frame")
+	f.Size = UDim2.fromOffset(18, 12)
+	f.Position = UDim2.new(0, 8, 0.5, 0)
+	f.AnchorPoint = Vector2.new(0, 0.5)
+	f.BackgroundColor3 = Color3.new(1,1,1)
+	f.BorderSizePixel = 0
+	f.ZIndex = 5002
+	f.Parent = parent
+	corner(f, 2); stroke(f, Theme.Stroke, 1, 0.3); f.ClipsDescendants = true
+	local function stripe(color, posY, sizeY)
+		local s = Instance.new("Frame")
+		s.Size = UDim2.new(1, 0, sizeY, 0); s.Position = UDim2.new(0, 0, posY, 0)
+		s.BackgroundColor3 = color; s.BorderSizePixel = 0; s.ZIndex = 5003; s.Parent = f
+	end
+	if lang == "ru" then
+		stripe(Color3.fromRGB(255,255,255), 0, 1/3)
+		stripe(Color3.fromRGB(0,57,166), 1/3, 1/3)
+		stripe(Color3.fromRGB(213,43,30), 2/3, 1/3)
+	elseif lang == "es" then
+		stripe(Color3.fromRGB(198,11,30), 0, 0.25)
+		stripe(Color3.fromRGB(255,196,0), 0.25, 0.5)
+		stripe(Color3.fromRGB(198,11,30), 0.75, 0.25)
+	else -- en: крест Святого Георгия (английский флаг)
+		local vb = Instance.new("Frame"); vb.Size=UDim2.new(0,4,1,0); vb.Position=UDim2.new(0.5,-2,0,0)
+		vb.BackgroundColor3=Color3.fromRGB(206,17,38); vb.BorderSizePixel=0; vb.ZIndex=5003; vb.Parent=f
+		local hb = Instance.new("Frame"); hb.Size=UDim2.new(1,0,0,4); hb.Position=UDim2.new(0,0,0.5,-2)
+		hb.BackgroundColor3=Color3.fromRGB(206,17,38); hb.BorderSizePixel=0; hb.ZIndex=5003; hb.Parent=f
+	end
+	return f
+end
 for _, lang in ipairs({"ru","en","es"}) do
 	local o = Instance.new("TextButton")
 	o.Size = UDim2.new(1,0,0,28); o.BackgroundColor3 = Theme.SurfaceHl; o.AutoButtonColor=false
-	o.Font = Enum.Font.GothamBold; o.TextSize=12; o.TextColor3=Theme.Text
-	o.Text = lang:upper().."  ·  "..(LANG_NAME[lang] or lang)  -- код + название, без emoji-флагов (tofu)
-	o.TextXAlignment = Enum.TextXAlignment.Left
-	local op = Instance.new("UIPadding"); op.PaddingLeft=UDim.new(0,10); op.Parent=o
+	o.Text = ""  -- текст в отдельном лейбле, чтобы не зависеть от позиции флага
 	o.ZIndex = 5001; o.Parent = langMenu; corner(o,5)
+	makeFlag(o, lang)  -- флаг слева (x=8)
+	local code = Instance.new("TextLabel")
+	code.Size = UDim2.new(1,-34,1,0); code.Position = UDim2.new(0,32,0,0)
+	code.BackgroundTransparency = 1; code.Font = Enum.Font.GothamBold; code.TextSize = 12
+	code.TextColor3 = Theme.Text; code.TextXAlignment = Enum.TextXAlignment.Left
+	code.Text = lang:upper(); code.ZIndex = 5002; code.Parent = o
 	o.MouseEnter:Connect(function() tween(o,0.1,{BackgroundColor3=Theme.Accent}) end)
 	o.MouseLeave:Connect(function() tween(o,0.1,{BackgroundColor3=Theme.SurfaceHl}) end)
 	o.MouseButton1Click:Connect(function() langMenu.Visible=false; switchLang(lang) end)
@@ -2202,6 +2236,18 @@ local function getRodTool()
 	if bp then for _, t in ipairs(bp:GetChildren()) do if isRod(t) then return t, false end end end
 	return nil
 end
+-- guid удочки в игровом инвентаре (целой)
+local function findRodGuid()
+	local inv = API.getInventory()
+	for guid, e in pairs(inv) do
+		local def = Items and Items[tostring(e.ItemId)]
+		local nm = (def and def.Name or ""):lower()
+		if (def and (def.Interactive == "FishingRod" or (def.Category == "Tool" and nm:find("rod")))) or nm:find("rod") then
+			if (e.Condition or 100) > 1 then return guid end
+		end
+	end
+	return nil
+end
 local function equipRod()
 	-- уже в руках?
 	local tool, inHand = getRodTool()
@@ -2210,18 +2256,13 @@ local function equipRod()
 		local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
 		if hum then hum:EquipTool(tool); return true end
 	end
-	-- удочка в игровом инвентаре -> экипировать через Hotbar.EquipTool(guid)
-	local inv = API.getInventory()
-	local equipF = ev("Hotbar.EquipTool")
-	for guid, e in pairs(inv) do
-		local def = Items and Items[tostring(e.ItemId)]
-		local nm = (def and def.Name or ""):lower()
-		if (def and def.Category == "Tool" and (nm:find("rod") or nm:find("fish"))) or nm:find("rod") then
-			if equipF then pcall(function() equipF:FireServer(guid) end) end
-			task.wait(0.8)
-			local t2 = getRodTool()
-			if t2 then return true end
-		end
+	-- экипируем из инвентаря через Inventory.EquipItem(guid) (проверено: именно так)
+	local guid = findRodGuid()
+	if guid then
+		local equipF = ev("Inventory.EquipItem")
+		if equipF then pcall(function() equipF:FireServer(guid) end) end
+		task.wait(1)
+		return true  -- сервер экипирует; заброс примет даже если Tool не виден локально
 	end
 	return false
 end
