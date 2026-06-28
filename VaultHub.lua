@@ -2027,13 +2027,36 @@ local function kickAuctionNPCs(garageModel)
 end
 
 -- забрать выигранные предметы из гаража (промпт "Add to Vehicle"/"Collect")
+-- забрать выигранное: гараж открыт, внутри предметы (часть — в коробках, сначала открыть).
+-- Заходим, открываем все боксы и забираем предметы; тачку подгоняем (для "Add to Vehicle").
 local function collectWonItems(garageModel)
 	if not garageModel then return end
-	for _, m in ipairs(garageModel:GetDescendants()) do
-		if m:IsA("ProximityPrompt") and (m.ActionText == "Add to Vehicle" or m.ActionText == "Collect" or m.ActionText == "Pick Up") then
-			pcall(function() fireproximityprompt(m) end)
-			task.wait(0.2)
+	local hrp = getHRP()
+	API.ensureVehicle()
+	-- 2 прохода: 1-й открывает коробки и берёт прямые предметы, 2-й забирает открытое
+	for pass = 1, 2 do
+		local acted = false
+		for _, d in ipairs(garageModel:GetDescendants()) do
+			if d:IsA("ProximityPrompt") and d.ActionText ~= "Start Auction" then
+				acted = true
+				local part = (d.Parent and d.Parent:IsA("BasePart")) and d.Parent
+					or d:FindFirstAncestorWhichIsA("Model")
+				local pos = part and (part:IsA("BasePart") and part.Position or (part.PrimaryPart and part.PrimaryPart.Position))
+				if pos and hrp then
+					hrp.CFrame = CFrame.new(pos + Vector3.new(0, 2, 0))
+					task.wait(0.25)
+					nudgeVehicleTo(pos)  -- тачку вплотную (нужна для "Add to Vehicle")
+					task.wait(0.3)
+				end
+				pcall(function() fireproximityprompt(d) end)
+				task.wait(0.35)
+				-- тачка полна -> выгрузить/продать и продолжить
+				local _, _, full = API.vehicleCargo()
+				if full then unloadVehicleSmart(true) end
+			end
 		end
+		if not acted then break end
+		task.wait(0.4)
 	end
 end
 
@@ -2186,11 +2209,9 @@ local function doGarageAuction(g)
 		task.wait(0.2)
 	until (not areaActive) or (not Config.autoBid) or (os.clock()-bt) > 40
 	autoHitEnabled = false
-	task.wait(0.6)
-	-- забрать выигранное; если тачки нет рядом — подогнать (спавн с учётом кулдауна)
-	API.ensureVehicle()
-	collectWonItems(g.model)
-	-- если тачка переполнилась — отвезти/продать (выигранное часто валится в ящик забытых вещей)
+	-- НЕ выходим из аукциона: после победы гараж открывается, предметы внутри
+	task.wait(1.5)  -- дать гаражу открыться/предметам появиться
+	collectWonItems(g.model)  -- зайти, открыть коробки, забрать (сам ensureVehicle/nudge внутри)
 	local _, _, full = API.vehicleCargo()
 	if full then unloadVehicleSmart(true) end
 end
@@ -2266,20 +2287,36 @@ local function equipRod()
 	end
 	return false
 end
--- точка на воде перед игроком + сама вода (для FishingCast:FireServer(water, pos))
+-- ближайшая к игроку вода
+local function nearestWater()
+	local hrp = getHRP(); if not hrp then return nil end
+	local best, bestD
+	for _, d in ipairs(Workspace:GetDescendants()) do
+		if d:IsA("BasePart") and d.Name == "Water" then
+			local dd = (d.Position - hrp.Position).Magnitude
+			if not bestD or dd < bestD then bestD = dd; best = d end
+		end
+	end
+	return best
+end
+-- валидная точка на воде перед игроком (raycast вниз подтверждает, что это вода)
 local function getCastTarget()
 	local hrp = getHRP(); if not hrp then return nil end
-	local water
-	for _, d in ipairs(Workspace:GetDescendants()) do
-		if d:IsA("BasePart") and d.Name == "Water" then water = d; break end
-	end
+	local water = nearestWater()
 	if not water then return nil end
 	local top = water.Position.Y + water.Size.Y/2
-	local fwd = hrp.CFrame.LookVector; fwd = Vector3.new(fwd.X, 0, fwd.Z)
-	if fwd.Magnitude < 0.1 then fwd = Vector3.new(0,0,-1) end
-	fwd = fwd.Unit
-	local point = Vector3.new(hrp.Position.X, top, hrp.Position.Z) + fwd * 18
-	return water, point
+	-- направление к центру воды (надёжнее, чем LookVector)
+	local toW = Vector3.new(water.Position.X, hrp.Position.Y, water.Position.Z) - hrp.Position
+	local dir = toW.Magnitude > 1 and toW.Unit or hrp.CFrame.LookVector
+	dir = Vector3.new(dir.X, 0, dir.Z).Unit
+	-- пробуем несколько дистанций, берём первую, что реально над водой
+	local rp = RaycastParams.new(); rp.FilterType = Enum.RaycastFilterType.Include; rp.FilterDescendantsInstances = {water}
+	for _, dist in ipairs({14, 20, 26, 10, 32}) do
+		local p = Vector3.new(hrp.Position.X, top, hrp.Position.Z) + dir * dist
+		local hit = Workspace:Raycast(p + Vector3.new(0, 25, 0), Vector3.new(0, -70, 0), rp)
+		if hit then return water, hit.Position end
+	end
+	return water, Vector3.new(hrp.Position.X, top, hrp.Position.Z) + dir * 16
 end
 -- телепорт к рыбаку (а не в центр озера)
 local function tpToFisherman()
@@ -2292,7 +2329,15 @@ local function tpToFisherman()
 		local hrp = getHRP()
 		if pp and hrp then
 			if (hrp.Position - pp.Position).Magnitude > 12 then  -- не телепортим если уже рядом
-				hrp.CFrame = CFrame.new(pp.Position + Vector3.new(0, 3, 5))
+				local stand = pp.Position + Vector3.new(0, 3, 0)
+				local w = nearestWater()
+				if w then
+					-- встаём у рыбака ЛИЦОМ к воде (чтобы заброс попал на воду)
+					local look = Vector3.new(w.Position.X, stand.Y, w.Position.Z)
+					hrp.CFrame = CFrame.new(stand, look)
+				else
+					hrp.CFrame = CFrame.new(stand)
+				end
 			end
 			return true
 		end
@@ -2328,29 +2373,25 @@ do
 	RunService.Heartbeat:Connect(function()
 		if not Config.autoFish then
 			if holding then mouseRelease(); holding=false end
-			prevZ = nil; return
+			return
 		end
 		local zone, fish = findReel()
 		if not (zone and fish) then
 			if holding then mouseRelease(); holding=false end
-			prevZ = nil; return
+			return
 		end
-		local zC   = cx(zone)
-		local fC   = cx(fish)
-		local now  = os.clock()
-		-- оценка скорости зоны (px/с) для упреждения и гашения инерции
-		local vel = 0
-		if prevZ and prevT and now > prevT then vel = (zC - prevZ) / (now - prevT) end
-		prevZ, prevT = zC, now
-		-- упреждение: куда зона придёт через LEAD сек при текущей скорости
-		local LEAD = 0.09
-		local future = zC + vel * LEAD
-		-- bang-bang по упреждённой позиции: левее цели -> зажать (вправо), иначе отпустить
-		if future < fC then
-			if not holding then mousePress(); holding=true end
-		else
-			if holding then mouseRelease(); holding=false end
+		-- зажал ЛКМ -> зона едет ВПРАВО; отпустил -> дрейфует влево.
+		-- Прямое преследование рыбы с гистерезисом (без упреждения, чтобы не отставать).
+		local zC = cx(zone)
+		local fC = cx(fish)
+		local err = fC - zC  -- >0: рыба правее зоны -> надо вправо -> зажать
+		local dead = math.max(2, fish.AbsoluteSize.X * 0.25)  -- мёртвая зона ~ четверть рыбы
+		if err > dead then
+			if not holding then mousePress(); holding = true end
+		elseif err < -dead then
+			if holding then mouseRelease(); holding = false end
 		end
+		-- внутри мёртвой зоны держим текущее состояние (зона широкая -> остаёмся в захвате)
 	end)
 end
 
