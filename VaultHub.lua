@@ -480,11 +480,17 @@ local function unloadVehicleSmart(sellWhenFull)
 		if _G.__VH_sellNow then _G.__VH_sellNow() end; task.wait(2)
 	end
 end
--- подогнать тачку вплотную к точке (чтобы сработал промпт "Add to Vehicle"; радиус ~5.6 -> ставим ~3)
-local function nudgeVehicleTo(pos)
+-- держать тачку В РАДИУСЕ (~30 студ) от точки сбора, СБОКУ (предметы летят к ней, не мешает собирать).
+-- Двигаем только если тачка дальше радиуса — без постоянных перепарковок.
+local function nudgeVehicleTo(pos, radius)
+	radius = radius or 28
 	local v = API.findMyVehicle()
-	if v then pcall(function() v:PivotTo(CFrame.new(pos + Vector3.new(3, 2, 0))) end); return true end
-	return false
+	if not v then return false end
+	local pp = v.PrimaryPart or v:FindFirstChildWhichIsA("BasePart")
+	if pp and (pp.Position - pos).Magnitude <= radius then return true end  -- уже в радиусе — не трогаем
+	-- паркуем сбоку (+14 по X, +12 по Z), приподняв, чтобы не утонула/не мешала
+	pcall(function() v:PivotTo(CFrame.new(pos + Vector3.new(14, 4, 12))) end)
+	return true
 end
 
 -- универсальные обёртки обработки (Wash/Grading/Repair/Locksmith)
@@ -1964,10 +1970,13 @@ end
 task.spawn(function()
 	while ScreenGui.Parent do
 		local ok, err = pcall(function()
-			-- возврат на базу при полном весе + выгрузка в инвентарь
-			if Config.returnWhenFull and vehMaxWeight > 0 and vehWeight >= vehMaxWeight * 0.97 then
-				tpToBase(); task.wait(1)
-				API.transferVehicleItems(); task.wait(1)
+			-- возврат на базу ТОЛЬКО когда тачка реально полна (живой CargoWeight, не устаревшее событие)
+			if Config.returnWhenFull then
+				local _, _, full = API.vehicleCargo()
+				if full then
+					tpToBase(); task.wait(1)
+					API.transferVehicleItems(); task.wait(1.2)  -- после выгрузки CargoWeight падает -> повтора не будет
+				end
 			end
 			if Config.autoSell then _G.__VH_sellNow() end
 			if Config.autoWash then autoProcess("Wash", Config.washMin) end
@@ -2031,32 +2040,27 @@ end
 -- Заходим, открываем все боксы и забираем предметы; тачку подгоняем (для "Add to Vehicle").
 local function collectWonItems(garageModel)
 	if not garageModel then return end
-	local hrp = getHRP()
+	-- центр гаража (для парковки тачки в радиусе, предметы летят к ней)
+	local center
+	local cpart = garageModel.PrimaryPart or garageModel:FindFirstChildWhichIsA("BasePart")
+	center = cpart and cpart.Position or (getHRP() and getHRP().Position)
 	API.ensureVehicle()
-	-- 2 прохода: 1-й открывает коробки и берёт прямые предметы, 2-й забирает открытое
+	if center then nudgeVehicleTo(center, 28) end  -- припарковать ОДИН раз сбоку, в радиусе
+	task.wait(0.4)
+	-- 2 прохода: открыть коробки (1) и забрать открытое (2). Предметы сами летят к тачке.
 	for pass = 1, 2 do
 		local acted = false
 		for _, d in ipairs(garageModel:GetDescendants()) do
 			if d:IsA("ProximityPrompt") and d.ActionText ~= "Start Auction" then
 				acted = true
-				local part = (d.Parent and d.Parent:IsA("BasePart")) and d.Parent
-					or d:FindFirstAncestorWhichIsA("Model")
-				local pos = part and (part:IsA("BasePart") and part.Position or (part.PrimaryPart and part.PrimaryPart.Position))
-				if pos and hrp then
-					hrp.CFrame = CFrame.new(pos + Vector3.new(0, 2, 0))
-					task.wait(0.25)
-					nudgeVehicleTo(pos)  -- тачку вплотную (нужна для "Add to Vehicle")
-					task.wait(0.3)
-				end
 				pcall(function() fireproximityprompt(d) end)
-				task.wait(0.35)
-				-- тачка полна -> выгрузить/продать и продолжить
+				task.wait(0.3)
 				local _, _, full = API.vehicleCargo()
 				if full then unloadVehicleSmart(true) end
 			end
 		end
 		if not acted then break end
-		task.wait(0.4)
+		task.wait(0.5)
 	end
 end
 
