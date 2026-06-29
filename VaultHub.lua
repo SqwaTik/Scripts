@@ -2262,16 +2262,16 @@ local function collectWonItems()
 		else
 			emptyStreak = 0
 			for _, it in ipairs(mine) do
-				if not it.model.Parent then goto cont end        -- уже забран/исчез
-				-- подходим в радиус активации (<10); тачку НЕ двигаем (стоит припаркованная)
-				hrp.CFrame = CFrame.new(it.base.Position + Vector3.new(0, 3, 4))
-				task.wait(0.1)
-				pcall(function() fireproximityprompt(it.prompt, it.prompt.HoldDuration) end)
-				task.wait(0.15)
-				got = true
-				local _, _, full = API.vehicleCargo()
-				if full then unloadVehicleSmart(false); parkOnce() end  -- тачка полна → выгрузить и заново припарковать
-				::cont::
+				if it.model.Parent then                          -- ещё существует (не забран)
+					-- подходим в радиус активации (<10); тачку НЕ двигаем (стоит припаркованная)
+					hrp.CFrame = CFrame.new(it.base.Position + Vector3.new(0, 3, 4))
+					task.wait(0.1)
+					pcall(function() fireproximityprompt(it.prompt, it.prompt.HoldDuration) end)
+					task.wait(0.15)
+					got = true
+					local _, _, full = API.vehicleCargo()
+					if full then unloadVehicleSmart(false); parkOnce() end  -- тачка полна → выгрузить и заново припарковать
+				end
 			end
 		end
 	end
