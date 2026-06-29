@@ -1932,12 +1932,13 @@ function _G.__VH_sellNow()
 		local price = API.itemPrice(e)
 		local def = Items and Items[tostring(e.ItemId)]
 		local isSafe = (def and (def.SafeId ~= nil or (def.Category=="Safe") or ((def.Name or ""):lower():find("safe")))) or false
-		local isRod = (def and ((def.Category=="Tool") or ((def.Name or ""):lower():find("rod")))) or false
+		local isRod = (def and ((def.Interactive=="FishingRod") or (def.Category=="Tool") or ((def.Name or ""):lower():find("rod")))) or false
+		local rodBroken = isRod and (e.Lost == true)  -- сломанная/израсходованная удочка → продаём даже при keepRods
 		local skip = false
 		if Config.keepFav and e.Favorited then skip = true end
 		if Config.keepTrophy and e.IsTrophy then skip = true end
 		if Config.keepSafes and isSafe then skip = true end
-		if Config.keepRods and isRod then skip = true end
+		if Config.keepRods and isRod and not rodBroken then skip = true end  -- беречь только РАБОЧИЕ удочки
 		if repairable[tostring(guid)] then skip = true end  -- повреждён → отдать в ремонт, не продавать
 		if (Config.maxSell or 0) > 0 and price > Config.maxSell then skip = true end  -- не продавать дороже X
 		if not skip then table.insert(list, {guid=guid, price=price}) end
@@ -2041,115 +2042,129 @@ local function ensureTradeStaff()
 	if found then API.setStaffOffer(found, Config.tradeMinPercent or 80) end
 end
 
--- посчитать свободные слоты полок БЕЗ телепорта (полки видны из мира, GetShopStock работает откуда угодно)
--- возвращает -1 если полки не загружены (неизвестно → fallback на попытку с ТП)
-local function countFreeShelfSlots()
+-- разложенный stock хранится в Workspace._Plots.<Plot>.Stock.<имя> (НЕ в модели полки, НЕ в GetShopStock!)
+local function getStockFolder()
+	local plots = Workspace:FindFirstChild("_Plots")
+	if not plots then return nil end
+	for _, plot in ipairs(plots:GetChildren()) do
+		local stock = plot:FindFirstChild("Stock")
+		if stock then return stock end
+	end
+	return nil
+end
+
+-- позиции занятых слотов = пивоты разложенных предметов (надёжнее GetShopStock, который таймаутит/врёт)
+local function occupiedSlotPositions()
+	local out = {}
+	local stock = getStockFolder()
+	if stock then
+		for _, item in ipairs(stock:GetChildren()) do
+			local ok, cf = pcall(function() return item:GetPivot() end)
+			if ok then out[#out+1] = cf.Position end
+		end
+	end
+	return out
+end
+
+local function isSlotFree(occ, attPos)
+	for _, p in ipairs(occ) do
+		if (p - attPos).Magnitude < 2.5 then return false end
+	end
+	return true
+end
+
+local function myShelves()
 	local myId = LocalPlayer.UserId
-	local total = 0
+	local out = {}
 	for _, d in ipairs(Workspace:GetDescendants()) do
 		if d:IsA("Model") and d:GetAttribute("IsShelf") and d:GetAttribute("PlacedBy") == myId then
-			for _, a in ipairs(d:GetDescendants()) do
-				if a:IsA("Attachment") and a.Name:find("SnapPoint") then total = total + 1 end
+			out[#out+1] = d
+		end
+	end
+	return out
+end
+
+-- свободные слоты по геометрии (БЕЗ ТП). -1 = полки не загружены (неизвестно → fallback на попытку с ТП)
+local function countFreeShelfSlots()
+	local shelves = myShelves()
+	if #shelves == 0 then return -1 end
+	local occ = occupiedSlotPositions()
+	local free = 0
+	for _, shelf in ipairs(shelves) do
+		for _, a in ipairs(shelf:GetDescendants()) do
+			if a:IsA("Attachment") and a.Name:find("SnapPoint") then
+				if isSlotFree(occ, a.WorldPosition) then free = free + 1 end
 			end
 		end
 	end
-	if total == 0 then return -1 end
-	local occ = 0
-	pcall(function()
-		local f = ev("Plot.GetShopStock")
-		local stock = f and f:InvokeServer()
-		if type(stock) == "table" then
-			for _, s in pairs(stock) do if type(s) == "table" then occ = occ + 1 end end
-		end
-	end)
-	return math.max(0, total - occ)
+	return free
 end
 
--- АВТО-РАСКЛАДКА ПО ПОЛКАМ
--- Сигнатура (поймана хуком): PlaceStockItem(itemGuid, itemId, snapCFrame, price, shelfGuid, snapName)
+-- АВТО-РАСКЛАДКА ПО ПОЛКАМ. Реальная сигнатура (из PlayerScripts.ShelfInteraction.listForSale):
+-- PlaceStockItem:FireServer(guid, tostring(ItemId), att.WorldCFrame*CFrame.Angles(0,rad(ShelfRotationY),0), price, shelfGuid, snapName)
 local function stockShelves()
-	-- УМНО: если все полки заняты — НЕ телепаемся и НЕ выгружаем тачку (разложим, когда освободится слот)
+	-- УМНО: все слоты заняты — НЕ телепаемся и НЕ выгружаем тачку (разложим, когда освободится)
 	if countFreeShelfSlots() == 0 then return end
-	-- 0) если в тачке есть добыча — сперва выгрузить её в инвентарь
-	-- (transferVehicleItems сам тепает на плот, подгоняет тачку на зону и садит игрока)
+	-- 0) выгрузить добычу из тачки в инвентарь
 	if #API.getVehicleItemGuids() > 0 then
-		API.transferVehicleItems()
-		task.wait(0.5)
+		API.transferVehicleItems(); task.wait(0.4)
 	end
-	-- 1) собрать предметы инвентаря на продажу
+	-- 1) собрать предметы инвентаря
 	local inv = API.getInventory()
 	local items = {}
 	for guid, e in pairs(inv) do
 		local def = Items and Items[tostring(e.ItemId)]
 		local nm = (def and def.Name or ""):lower()
 		local isRod = def and (def.Interactive == "FishingRod" or nm:find("rod"))
+		local rodBroken = isRod and (e.Lost == true)  -- сломанная/израсходованная удочка → можно сбывать
 		local isSafe = def and (def.Category == "Safe" or def.SafeId ~= nil or nm:find("safe"))
 		local skip = false
 		if e.Favorited then skip = true end
 		if Config.keepTrophy and e.IsTrophy then skip = true end
-		if Config.keepRods and isRod then skip = true end
+		if Config.keepRods and isRod and not rodBroken then skip = true end  -- беречь только РАБОЧИЕ удочки
 		if Config.keepSafes and isSafe then skip = true end
-		if not skip then items[#items+1] = { guid = guid, id = e.ItemId, e = e } end
+		if not skip then items[#items+1] = { guid = guid, id = e.ItemId, e = e, def = def } end
 	end
-	-- если включён авто-ремонт: НЕ раскладываем повреждённые (пусть сперва починятся),
-	-- иначе по полкам уедет сломанный хлам по сниженной цене. Починятся → разложатся на след. круге.
+	-- авто-ремонт: не раскладывать повреждённые (пусть сперва починятся)
 	if Config.autoRepair then
 		local repairable = {}
 		for guid in pairs(API.procItems("Repair")) do repairable[tostring(guid)] = true end
 		if next(repairable) then
 			local kept = {}
-			for _, it in ipairs(items) do
-				if not repairable[tostring(it.guid)] then kept[#kept+1] = it end
-			end
+			for _, it in ipairs(items) do if not repairable[tostring(it.guid)] then kept[#kept+1] = it end end
 			items = kept
 		end
 	end
-	if #items == 0 then return end  -- нечего раскладывать -> не телепортим
+	if #items == 0 then return end
 
 	-- 2) телепорт на плот
 	local tpPlot = ev("Plot.TeleportToPlot")
-	if tpPlot then pcall(function() tpPlot:FireServer() end); task.wait(1.0) end
+	if tpPlot then pcall(function() tpPlot:FireServer() end); task.wait(0.9) end
 
-	-- 3) свои полки + занятые слоты
-	local myId = LocalPlayer.UserId
-	local shelves = {}
-	for _, d in ipairs(Workspace:GetDescendants()) do
-		if d:IsA("Model") and d:GetAttribute("IsShelf") and d:GetAttribute("PlacedBy") == myId then
-			shelves[#shelves+1] = d
-		end
-	end
-	if #shelves == 0 then return end
-	local occupied = {}
-	pcall(function()
-		local f = ev("Plot.GetShopStock")
-		local stock = f and f:InvokeServer()
-		if type(stock) == "table" then
-			for _, s in pairs(stock) do
-				if type(s) == "table" then
-					local sg = s.shelfGuid or s.ShelfGuid or s.shelf
-					local sp = s.snapPoint or s.SnapPoint or s.snapName
-					if sg and sp then occupied[tostring(sg).."|"..tostring(sp)] = true end
-				end
-			end
-		end
-	end)
-
-	-- 4) раскладываем по пустым слотам
+	-- 3) раскладываем по свободным слотам с проверкой "лёг ли предмет" (крупные не влезут → пропускаем)
 	local placeF = ev("Plot.PlaceStockItem")
 	if not placeF then return end
-	local idx = 1
-	for _, shelf in ipairs(shelves) do
+	local stock = getStockFolder()
+	local function stockCount() return stock and #stock:GetChildren() or 0 end
+	local ii = 1
+	for _, shelf in ipairs(myShelves()) do
 		local sGuid = shelf:GetAttribute("GUID")
 		for _, att in ipairs(shelf:GetDescendants()) do
 			if att:IsA("Attachment") and att.Name:find("SnapPoint") then
-				if items[idx] == nil then return end
-				local key = tostring(sGuid).."|"..att.Name
-				if not occupied[key] then
-					local it = items[idx]
-					local price = math.max(1, math.floor(API.itemPrice(it.e)))  -- цена = рыночная стоимость
-					pcall(function() placeF:FireServer(it.guid, it.id, att.WorldCFrame, price, sGuid, att.Name) end)
-					idx = idx + 1
-					task.wait(0.12)
+				if not items[ii] then return end  -- предметы кончились
+				if isSlotFree(occupiedSlotPositions(), att.WorldPosition) then
+					-- пробуем предметы по очереди, пока один реально не ляжет в этот слот
+					while items[ii] do
+						local it = items[ii]
+						local rotY = tonumber(it.def and it.def.ShelfRotationY) or 0
+						local cf = att.WorldCFrame * CFrame.Angles(0, math.rad(rotY), 0)
+						local price = math.max(1, API.itemPrice(it.e))
+						local before = stockCount()
+						pcall(function() placeF:FireServer(it.guid, tostring(it.id), cf, price, sGuid, att.Name) end)
+						task.wait(0.22)
+						ii = ii + 1
+						if stockCount() > before then break end  -- лёг → к следующему слоту; не лёг (крупный) → следующий предмет в тот же слот
+					end
 				end
 			end
 		end
