@@ -574,19 +574,19 @@ function API.transferVehicleItems()
 	local veh = API.findMyVehicle()
 	-- телепорт на плот (там зона выгрузки)
 	local tp = ev("Plot.TeleportToPlot")
-	if tp then pcall(function() tp:FireServer() end); task.wait(1.2) end
+	if tp then pcall(function() tp:FireServer() end); task.wait(0.8) end
 	-- подгоняем тачку под игрока (на зону) и садимся в неё
 	if veh and hrp then
 		pcall(function() veh:PivotTo(CFrame.new(hrp.Position + Vector3.new(0, 3, 0))) end)
-		task.wait(0.6)
+		task.wait(0.35)
 		local seat = veh:FindFirstChildWhichIsA("VehicleSeat")
-		if seat and hum then pcall(function() seat:Sit(hum) end); task.wait(1) end
+		if seat and hum then pcall(function() seat:Sit(hum) end); task.wait(0.55) end
 	end
 	-- обновляем список (после посадки) и выгружаем
 	guids = API.getVehicleItemGuids()
 	if #guids == 0 then return false end
 	pcall(function() f:FireServer(guids) end)
-	task.wait(1.2)
+	task.wait(0.7)
 	return true
 end
 
@@ -1905,6 +1905,11 @@ function _G.__VH_sellNow()
 	end
 	task.wait(0.3)
 	local items = API.getSellable()
+	-- при авто-ремонте не продаём повреждённые — сначала чиним (цена починенного выше)
+	local repairable = {}
+	if Config.autoRepair then
+		for guid in pairs(API.procItems("Repair")) do repairable[tostring(guid)] = true end
+	end
 	local list = {}
 	for guid, e in pairs(items) do
 		local price = API.itemPrice(e)
@@ -1916,6 +1921,7 @@ function _G.__VH_sellNow()
 		if Config.keepTrophy and e.IsTrophy then skip = true end
 		if Config.keepSafes and isSafe then skip = true end
 		if Config.keepRods and isRod then skip = true end
+		if repairable[tostring(guid)] then skip = true end  -- повреждён → отдать в ремонт, не продавать
 		if (Config.maxSell or 0) > 0 and price > Config.maxSell then skip = true end  -- не продавать дороже X
 		if not skip then table.insert(list, {guid=guid, price=price}) end
 	end
@@ -2042,11 +2048,24 @@ local function stockShelves()
 		if Config.keepSafes and isSafe then skip = true end
 		if not skip then items[#items+1] = { guid = guid, id = e.ItemId, e = e } end
 	end
+	-- если включён авто-ремонт: НЕ раскладываем повреждённые (пусть сперва починятся),
+	-- иначе по полкам уедет сломанный хлам по сниженной цене. Починятся → разложатся на след. круге.
+	if Config.autoRepair then
+		local repairable = {}
+		for guid in pairs(API.procItems("Repair")) do repairable[tostring(guid)] = true end
+		if next(repairable) then
+			local kept = {}
+			for _, it in ipairs(items) do
+				if not repairable[tostring(it.guid)] then kept[#kept+1] = it end
+			end
+			items = kept
+		end
+	end
 	if #items == 0 then return end  -- нечего раскладывать -> не телепортим
 
 	-- 2) телепорт на плот
 	local tpPlot = ev("Plot.TeleportToPlot")
-	if tpPlot then pcall(function() tpPlot:FireServer() end); task.wait(1.5) end
+	if tpPlot then pcall(function() tpPlot:FireServer() end); task.wait(1.0) end
 
 	-- 3) свои полки + занятые слоты
 	local myId = LocalPlayer.UserId
@@ -2087,7 +2106,7 @@ local function stockShelves()
 					local price = math.max(1, math.floor(API.itemPrice(it.e)))  -- цена = рыночная стоимость
 					pcall(function() placeF:FireServer(it.guid, it.id, att.WorldCFrame, price, sGuid, att.Name) end)
 					idx = idx + 1
-					task.wait(0.3)
+					task.wait(0.12)
 				end
 			end
 		end
@@ -2106,10 +2125,15 @@ task.spawn(function()
 					API.transferVehicleItems(); task.wait(1.2)  -- после выгрузки CargoWeight падает -> повтора не будет
 				end
 			end
+			-- свежую добычу из тачки → в инвентарь ПЕРЕД обработкой, иначе ремонт/мойка/оценка её не видят
+			-- (источник обработки = Inventory; раньше тачку выгружал только stockShelves, ПОСЛЕ ремонта)
+			if (Config.autoRepair or Config.autoWash or Config.autoGrade) and #API.getVehicleItemGuids() > 0 then
+				API.transferVehicleItems()
+			end
 			if Config.autoSell then _G.__VH_sellNow() end
 			if Config.autoWash then autoProcess("Wash", Config.washMin) end
 			if Config.autoGrade then autoProcess("Grade", Config.gradeMin) end
-			if Config.autoRepair then autoProcess("Repair", 0) end
+			if Config.autoRepair then autoProcess("Repair", Config.repairMin or 0) end
 			if Config.autoStock then stockShelves() end  -- разложить предметы по полкам
 			if Config.autoTrade then ensureTradeStaff() end
 			if Config.autoBuyDrink then
@@ -2195,36 +2219,75 @@ local function collectMyCarryables()
 	return out
 end
 
+-- центр кластера наших предметов (для разовой парковки тачки сбоку)
+local function carryablesCenter(mine)
+	if #mine == 0 then return nil end
+	local sum = Vector3.zero
+	for _, it in ipairs(mine) do sum = sum + it.base.Position end
+	return sum / #mine
+end
+
+-- ЗАБРАТЬ ВСЁ выигранное. Предметы спавнятся в _Carryables постепенно (фаза AuctionPickupStart..End).
+-- Тачку паркуем ОДИН раз сбоку (не телепаем на каждый предмет!), игрока ТПшим к предметам (<10 для активации).
+-- Возвращает true если что-то было забрано (значит надо распорядиться).
 local function collectWonItems()
 	API.ensureVehicle()
 	local hrp = getHRP()
-	if not hrp then return end
-	local deadline = os.clock() + 35      -- общий потолок на забор одного гаража
-	local emptyStreak = 0                 -- сколько подряд сканов пусто (для выхода, когда забор реально кончился)
-	while Config.autoBid and os.clock() < deadline do
+	if not hrp then return false end
+	-- 1) ждём первого появления предметов (после победы спавн ~1-4с). Если проиграли — выходим быстро.
+	local t0 = os.clock()
+	while #collectMyCarryables() == 0 do
+		if (os.clock()-t0) > 5 then return false end           -- 5с нет предметов и pickup не идёт → проиграли/нечего брать
+		if not pickupActive and (os.clock()-t0) > 2.5 then return false end
+		task.wait(0.15)
+	end
+	-- 2) припарковать тачку ОДИН раз рядом с кластером (предметы "Add to Vehicle" летят в неё)
+	local parked = false
+	local function parkOnce()
+		local c = carryablesCenter(collectMyCarryables())
+		if c then nudgeVehicleTo(c, 16); parked = true end
+	end
+	parkOnce()
+	-- 3) собираем пока есть наши предметы ИЛИ идёт фаза забора
+	local got = false
+	local deadline = os.clock() + 45
+	local emptyStreak = 0
+	while os.clock() < deadline do
+		if not (Config.autoBid or Config.autoStock or Config.autoSell) then break end
 		local mine = collectMyCarryables()
 		if #mine == 0 then
-			-- пусто: если фаза забора ещё идёт или только началась — ждём появления предметов
 			if pickupActive then emptyStreak = 0 else emptyStreak = emptyStreak + 1 end
-			if emptyStreak >= 4 then break end   -- ~2с тишины подряд и забор не идёт → всё собрано
-			task.wait(0.5)
+			if emptyStreak >= 5 then break end                  -- ~1.5с тишины и pickup кончился → всё собрано
+			task.wait(0.3)
 		else
 			emptyStreak = 0
 			for _, it in ipairs(mine) do
-				if not Config.autoBid then break end
-				-- тачку держим рядом с предметом (для "Add to Vehicle" предмет летит в неё)
-				nudgeVehicleTo(it.base.Position, 22)
-				-- подходим в радиус активации (<10): сервер проверяет дистанцию персонажа
+				if not it.model.Parent then goto cont end        -- уже забран/исчез
+				-- подходим в радиус активации (<10); тачку НЕ двигаем (стоит припаркованная)
 				hrp.CFrame = CFrame.new(it.base.Position + Vector3.new(0, 3, 4))
-				task.wait(0.2)
-				-- hold=0.30 у "Add to Vehicle" → передаём HoldDuration вторым аргументом (надёжнее)
+				task.wait(0.1)
 				pcall(function() fireproximityprompt(it.prompt, it.prompt.HoldDuration) end)
-				task.wait(0.35)
+				task.wait(0.15)
+				got = true
 				local _, _, full = API.vehicleCargo()
-				if full then unloadVehicleSmart(true) end  -- переполнилась → выгрузить (ТП на плот и обратно к след. предмету)
+				if full then unloadVehicleSmart(false); parkOnce() end  -- тачка полна → выгрузить и заново припарковать
+				::cont::
 			end
-			task.wait(0.3)
 		end
+	end
+	return got
+end
+
+-- РАСПОРЯДИТЬСЯ выигранным (выгрузить тачку и разложить/продать по настройкам)
+local function disposeWon()
+	if Config.autoStock then
+		stockShelves()                                          -- сам выгрузит тачку → инвентарь → полки
+	elseif Config.autoSell then
+		API.transferVehicleItems(); task.wait(0.3)
+		if _G.__VH_sellNow then _G.__VH_sellNow() end
+	else
+		local _, _, full = API.vehicleCargo()
+		if full then API.transferVehicleItems() end             -- хотя бы разгрузим переполненную
 	end
 end
 
@@ -2336,13 +2399,13 @@ local function doGarageAuction(g)
 
 	-- ждём вход в зону (ToggleAuctionArea приходит ~0.1с)
 	local t0 = os.clock()
-	repeat task.wait(0.08) until areaActive or (os.clock()-t0) > 2 or not Config.autoBid
-	if not areaActive then task.wait(0.2); return end
+	repeat task.wait(0.08) until areaActive or (os.clock()-t0) > 1.5 or not Config.autoBid
+	if not areaActive then task.wait(0.15); return end
 
 	-- ждём старт торгов И появление реальной ставки (>0), чтобы решение по minBid было верным
 	t0 = os.clock()
-	repeat task.wait(0.12) until (biddingActive and currentBid > 0) or (os.clock()-t0) > 12 or (not areaActive) or not Config.autoBid
-	if not biddingActive then autoHitEnabled = false; API.leaveAuction(); task.wait(0.4); return end
+	repeat task.wait(0.1) until (biddingActive and currentBid > 0) or (os.clock()-t0) > 8 or (not areaActive) or not Config.autoBid
+	if not biddingActive then autoHitEnabled = false; API.leaveAuction(); task.wait(0.25); return end
 
 	-- решаем: дешёвый лот (ниже minBid)?
 	local skipCheap = (Config.minBid > 0 and currentBid > 0 and currentBid < Config.minBid)
@@ -2377,40 +2440,39 @@ local function doGarageAuction(g)
 		task.wait(0.2)
 	until (not areaActive) or (not Config.autoBid) or (os.clock()-bt) > 40
 	autoHitEnabled = false
-	-- НЕ выходим из аукциона: после победы гараж открывается, предметы внутри
-	task.wait(1.5)  -- дать гаражу открыться/предметам появиться
-	collectWonItems()  -- забрать предметы из _Carryables (открыть коробки, "Add to Vehicle" в тачку)
-	task.wait(0.5)
-	-- выигранное лежит в ТАЧКЕ. Что с ним делать:
-	if Config.autoStock then
-		stockShelves()      -- выгрузит тачку в инвентарь и разложит по полкам
-	elseif Config.autoSell then
-		API.transferVehicleItems(); task.wait(0.5)  -- тачка -> инвентарь (на зоне плота, с посадкой)
-		if _G.__VH_sellNow then _G.__VH_sellNow() end
-	else
-		-- иначе хотя бы разгрузим, если тачка переполнилась
-		local _, _, full = API.vehicleCargo()
-		if full then API.transferVehicleItems() end
-	end
+	-- НЕ выходим из аукциона: после победы предметы спавнятся в _Carryables.
+	-- collectWonItems сам дождётся появления (или быстро выйдет, если проиграли).
+	local won = collectWonItems()  -- забрать ВСЁ выигранное в тачку
+	if won then disposeWon() end   -- распорядиться (полки/продажа) только если реально что-то взяли
 end
 
 task.spawn(function()
 	while ScreenGui.Parent do
 		if Config.autoBid then
-			local garages = getGarages()
-			local center = AREA_CENTER[Config.bidArea]
-			-- сортируем по близости к выбранной зоне
-			if center then
-				table.sort(garages, function(a,b) return (a.pos-center).Magnitude < (b.pos-center).Magnitude end)
-			end
-			for _, g in ipairs(garages) do
-				if not Config.autoBid then break end
-				-- только гаражи выбранной зоны (в радиусе) если зона задана
-				if (not center) or (g.pos - center).Magnitude < 350 then
-					pcall(doGarageAuction, g)
+			-- ЗАЩИТА Lost & Found: если остались НЕзабранные наши предметы (или идёт фаза забора) —
+			-- сначала ДОБРАТЬ их и распорядиться. Старт нового аука с непустым Lost & Found стирает их!
+			if pickupActive or #collectMyCarryables() > 0 then
+				local won = collectWonItems()
+				if won then disposeWon() end
+				task.wait(0.3)
+			else
+				local garages = getGarages()
+				local center = AREA_CENTER[Config.bidArea]
+				-- сортируем по близости к выбранной зоне
+				if center then
+					table.sort(garages, function(a,b) return (a.pos-center).Magnitude < (b.pos-center).Magnitude end)
 				end
+				for _, g in ipairs(garages) do
+					if not Config.autoBid then break end
+					-- стоп-условие: появились недозабранные предметы — выходим добирать (не начинаем новый аук)
+					if pickupActive or #collectMyCarryables() > 0 then break end
+					-- только гаражи выбранной зоны (в радиусе) если зона задана
+					if (not center) or (g.pos - center).Magnitude < 350 then
+						pcall(doGarageAuction, g)
+					end
+				end
+				task.wait(0.5)
 			end
-			task.wait(1)
 		else
 			task.wait(1)
 		end
