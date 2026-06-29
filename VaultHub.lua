@@ -1966,6 +1966,76 @@ local function ensureTradeStaff()
 	if found then API.setStaffOffer(found, Config.tradeMinPercent or 80) end
 end
 
+-- АВТО-РАСКЛАДКА ПО ПОЛКАМ
+-- Сигнатура (поймана хуком): PlaceStockItem(itemGuid, itemId, snapCFrame, price, shelfGuid, snapName)
+local function stockShelves()
+	-- 1) собрать предметы на продажу (до телепорта — если нечего класть, не тепаем)
+	local inv = API.getInventory()
+	local items = {}
+	for guid, e in pairs(inv) do
+		local def = Items and Items[tostring(e.ItemId)]
+		local nm = (def and def.Name or ""):lower()
+		local isRod = def and (def.Interactive == "FishingRod" or nm:find("rod"))
+		local isSafe = def and (def.Category == "Safe" or def.SafeId ~= nil or nm:find("safe"))
+		local skip = false
+		if e.Favorited then skip = true end
+		if Config.keepTrophy and e.IsTrophy then skip = true end
+		if Config.keepRods and isRod then skip = true end
+		if Config.keepSafes and isSafe then skip = true end
+		if not skip then items[#items+1] = { guid = guid, id = e.ItemId, e = e } end
+	end
+	if #items == 0 then return end  -- нечего раскладывать -> не телепортим
+
+	-- 2) телепорт на плот
+	local tpPlot = ev("Plot.TeleportToPlot")
+	if tpPlot then pcall(function() tpPlot:FireServer() end); task.wait(1.5) end
+
+	-- 3) свои полки + занятые слоты
+	local myId = LocalPlayer.UserId
+	local shelves = {}
+	for _, d in ipairs(Workspace:GetDescendants()) do
+		if d:IsA("Model") and d:GetAttribute("IsShelf") and d:GetAttribute("PlacedBy") == myId then
+			shelves[#shelves+1] = d
+		end
+	end
+	if #shelves == 0 then return end
+	local occupied = {}
+	pcall(function()
+		local f = ev("Plot.GetShopStock")
+		local stock = f and f:InvokeServer()
+		if type(stock) == "table" then
+			for _, s in pairs(stock) do
+				if type(s) == "table" then
+					local sg = s.shelfGuid or s.ShelfGuid or s.shelf
+					local sp = s.snapPoint or s.SnapPoint or s.snapName
+					if sg and sp then occupied[tostring(sg).."|"..tostring(sp)] = true end
+				end
+			end
+		end
+	end)
+
+	-- 4) раскладываем по пустым слотам
+	local placeF = ev("Plot.PlaceStockItem")
+	if not placeF then return end
+	local idx = 1
+	for _, shelf in ipairs(shelves) do
+		local sGuid = shelf:GetAttribute("GUID")
+		for _, att in ipairs(shelf:GetDescendants()) do
+			if att:IsA("Attachment") and att.Name:find("SnapPoint") then
+				if items[idx] == nil then return end
+				local key = tostring(sGuid).."|"..att.Name
+				if not occupied[key] then
+					local it = items[idx]
+					local price = math.max(1, math.floor(API.itemPrice(it.e)))  -- цена = рыночная стоимость
+					pcall(function() placeF:FireServer(it.guid, it.id, att.WorldCFrame, price, sGuid, att.Name) end)
+					idx = idx + 1
+					task.wait(0.3)
+				end
+			end
+		end
+	end
+end
+
 -- мастер-цикл
 task.spawn(function()
 	while ScreenGui.Parent do
@@ -1982,6 +2052,7 @@ task.spawn(function()
 			if Config.autoWash then autoProcess("Wash", Config.washMin) end
 			if Config.autoGrade then autoProcess("Grade", Config.gradeMin) end
 			if Config.autoRepair then autoProcess("Repair", 0) end
+			if Config.autoStock then stockShelves() end  -- разложить предметы по полкам
 			if Config.autoTrade then ensureTradeStaff() end
 			if Config.autoBuyDrink then
 				-- не покупаем, если зелье этого уровня уже активно (ActiveLuckDrinkExpireAt_<tier> в будущем)
