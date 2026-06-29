@@ -549,11 +549,44 @@ function API.vehicleWeight()
 	local mx = LocalPlayer:GetAttribute("VehicleMaxWeight") or LocalPlayer:GetAttribute("MaxWeight")
 	return w, mx
 end
+-- список guid'ов предметов в тачке
+function API.getVehicleItemGuids()
+	local f = ev("Vehicles.GetVehicleItems")
+	local eq = LocalPlayer:GetAttribute("EquippedVehicle")
+	if not (f and eq) then return {} end
+	local ok, items = pcall(function() return f:InvokeServer(eq) end)
+	local guids = {}
+	if ok and type(items) == "table" then
+		for g in pairs(items) do guids[#guids+1] = g end
+	end
+	return guids
+end
+-- ВЫГРУЗКА В ИНВЕНТАРЬ (реальная механика): тачка на зоне плота + игрок СИДИТ в ней,
+-- затем TransferVehicleItemsToInventory:FireServer({guid,...}).
 function API.transferVehicleItems()
 	local f = ev("Vehicles.TransferVehicleItemsToInventory")
 	if not f then return false end
-	local g = API.getVehicles().equippedGuid
-	pcall(function() f:FireServer(g) end)
+	local guids = API.getVehicleItemGuids()
+	if #guids == 0 then return false end  -- тачка пуста
+	local char = LocalPlayer.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	local veh = API.findMyVehicle()
+	-- телепорт на плот (там зона выгрузки)
+	local tp = ev("Plot.TeleportToPlot")
+	if tp then pcall(function() tp:FireServer() end); task.wait(1.2) end
+	-- подгоняем тачку под игрока (на зону) и садимся в неё
+	if veh and hrp then
+		pcall(function() veh:PivotTo(CFrame.new(hrp.Position + Vector3.new(0, 3, 0))) end)
+		task.wait(0.6)
+		local seat = veh:FindFirstChildWhichIsA("VehicleSeat")
+		if seat and hum then pcall(function() seat:Sit(hum) end); task.wait(1) end
+	end
+	-- обновляем список (после посадки) и выгружаем
+	guids = API.getVehicleItemGuids()
+	if #guids == 0 then return false end
+	pcall(function() f:FireServer(guids) end)
+	task.wait(1.2)
 	return true
 end
 
@@ -1937,6 +1970,25 @@ do
 	end) end
 end
 
+-- АВТО-ПРИЁМ ОФФЕРОВ ОТ ПОКУПАТЕЛЕЙ (прямой ответ, без помощника)
+-- ShowOffer(offerKey, npcModel, ?, offerPrice, basePrice) -> RespondOffer:FireServer(offerKey, accept)
+do
+	local show = ev("NPCShopper.ShowOffer")
+	local respond = ev("NPCShopper.RespondOffer")
+	if show and respond then
+		show.OnClientEvent:Connect(function(offerKey, _npc, _p3, offerPrice, basePrice)
+			if not Config.autoTrade then return end
+			if offerKey == nil then return end
+			-- процент оффера от базовой цены; принимаем если >= tradeMinPercent
+			local pct = (type(basePrice)=="number" and basePrice > 0 and type(offerPrice)=="number")
+				and (offerPrice / basePrice * 100) or 100
+			local accept = pct >= (Config.tradeMinPercent or 80)
+			task.wait(0.25)
+			pcall(function() respond:FireServer(offerKey, accept) end)
+		end)
+	end
+end
+
 local function tpToBase()
 	-- свой магазин/плот игрока
 	local myId = LocalPlayer.UserId
@@ -1969,7 +2021,13 @@ end
 -- АВТО-РАСКЛАДКА ПО ПОЛКАМ
 -- Сигнатура (поймана хуком): PlaceStockItem(itemGuid, itemId, snapCFrame, price, shelfGuid, snapName)
 local function stockShelves()
-	-- 1) собрать предметы на продажу (до телепорта — если нечего класть, не тепаем)
+	-- 0) если в тачке есть добыча — сперва выгрузить её в инвентарь
+	-- (transferVehicleItems сам тепает на плот, подгоняет тачку на зону и садит игрока)
+	if #API.getVehicleItemGuids() > 0 then
+		API.transferVehicleItems()
+		task.wait(0.5)
+	end
+	-- 1) собрать предметы инвентаря на продажу
 	local inv = API.getInventory()
 	local items = {}
 	for guid, e in pairs(inv) do
@@ -2286,9 +2344,19 @@ local function doGarageAuction(g)
 	autoHitEnabled = false
 	-- НЕ выходим из аукциона: после победы гараж открывается, предметы внутри
 	task.wait(1.5)  -- дать гаражу открыться/предметам появиться
-	collectWonItems(g.model)  -- зайти, открыть коробки, забрать (сам ensureVehicle/nudge внутри)
-	local _, _, full = API.vehicleCargo()
-	if full then unloadVehicleSmart(true) end
+	collectWonItems(g.model)  -- зайти, открыть коробки, забрать предметы в тачку
+	task.wait(0.5)
+	-- выигранное лежит в ТАЧКЕ. Что с ним делать:
+	if Config.autoStock then
+		stockShelves()      -- выгрузит тачку в инвентарь и разложит по полкам
+	elseif Config.autoSell then
+		API.transferVehicleItems(); task.wait(0.5)  -- тачка -> инвентарь (на зоне плота, с посадкой)
+		if _G.__VH_sellNow then _G.__VH_sellNow() end
+	else
+		-- иначе хотя бы разгрузим, если тачка переполнилась
+		local _, _, full = API.vehicleCargo()
+		if full then API.transferVehicleItems() end
+	end
 end
 
 task.spawn(function()
