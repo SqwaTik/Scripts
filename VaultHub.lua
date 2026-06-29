@@ -2136,6 +2136,7 @@ local biddingActive = false
 local areaActive = false   -- ToggleAuctionArea: аукцион реально идёт (приходит ~0.1с после старта)
 local currentBid = 0
 local autoHitEnabled = false  -- бьём по бар-полосе ТОЛЬКО на одобренном аукционе (не на дешёвых/чужих)
+local pickupActive = false    -- фаза забора выигранного (AuctionPickupStart..End) — предметы спавнятся в _Carryables
 do
 	local toggleArea = ev("Auction.ToggleAuctionArea")
 	local toggleUI = ev("Auction.ToggleBiddingUI")
@@ -2147,6 +2148,11 @@ do
 		elseif type(v)=="table" and v.amount then currentBid = v.amount end
 	end) end
 	-- NB: AuctionPickupItem — HUD-уведомление о прибыли, НЕ команда. Раньше зря перефаирили его на сервер.
+	-- фаза забора: Start (победа, предметы пошли в _Carryables) .. End (всё заспавнилось)
+	local puStart = ev("Auction.AuctionPickupStart")
+	local puEnd = ev("Auction.AuctionPickupEnd")
+	if puStart then puStart.OnClientEvent:Connect(function() pickupActive = true end) end
+	if puEnd then puEnd.OnClientEvent:Connect(function() pickupActive = false end) end
 end
 
 -- кикнуть NPC-участников аукциона (они дети гаража: Model+Humanoid, кроме Auctioneer)
@@ -2165,31 +2171,60 @@ local function kickAuctionNPCs(garageModel)
 end
 
 -- забрать выигранные предметы из гаража (промпт "Add to Vehicle"/"Collect")
--- забрать выигранное: гараж открыт, внутри предметы (часть — в коробках, сначала открыть).
--- Заходим, открываем все боксы и забираем предметы; тачку подгоняем (для "Add to Vehicle").
-local function collectWonItems(garageModel)
-	if not garageModel then return end
-	-- центр гаража (для парковки тачки в радиусе, предметы летят к ней)
-	local center
-	local cpart = garageModel.PrimaryPart or garageModel:FindFirstChildWhichIsA("BasePart")
-	center = cpart and cpart.Position or (getHRP() and getHRP().Position)
-	API.ensureVehicle()
-	if center then nudgeVehicleTo(center, 28) end  -- припарковать ОДИН раз сбоку, в радиусе
-	task.wait(0.4)
-	-- 2 прохода: открыть коробки (1) и забрать открытое (2). Предметы сами летят к тачке.
-	for pass = 1, 2 do
-		local acted = false
-		for _, d in ipairs(garageModel:GetDescendants()) do
-			if d:IsA("ProximityPrompt") and d.ActionText ~= "Start Auction" then
-				acted = true
-				pcall(function() fireproximityprompt(d) end)
-				task.wait(0.3)
-				local _, _, full = API.vehicleCargo()
-				if full then unloadVehicleSmart(true) end
+-- забрать выигранное. РЕАЛЬНАЯ механика (подтверждено диагностикой):
+-- после победы предметы спавнятся в Workspace._Carryables.<имя> с OwnerUserId = наш,
+-- НЕ внутри модели гаража. Коробки → промпт "Open" (hold=0), предметы → "Add to Vehicle"
+-- (hold=0.30, maxActivationDistance=10 — сервер валидирует дистанцию, надо подойти <10).
+-- Открытая коробка спавнит новые предметы → крутим цикл, пока есть наши carryables / идёт фаза забора.
+local function collectMyCarryables()
+	local myId = LocalPlayer.UserId
+	local out = {}
+	local cf = Workspace:FindFirstChild("_Carryables")
+	if not cf then return out end
+	for _, c in ipairs(cf:GetChildren()) do
+		local owner = c:GetAttribute("OwnerUserId") or c:GetAttribute("Owner")
+		if owner == myId then
+			local pp
+			for _, d in ipairs(c:GetDescendants()) do
+				if d:IsA("ProximityPrompt") and d.Enabled then pp = d; break end
 			end
+			local base = c:FindFirstChild("Base") or c:FindFirstChildWhichIsA("BasePart")
+			if pp and base then out[#out+1] = {model=c, prompt=pp, base=base} end
 		end
-		if not acted then break end
-		task.wait(0.5)
+	end
+	return out
+end
+
+local function collectWonItems()
+	API.ensureVehicle()
+	local hrp = getHRP()
+	if not hrp then return end
+	local deadline = os.clock() + 35      -- общий потолок на забор одного гаража
+	local emptyStreak = 0                 -- сколько подряд сканов пусто (для выхода, когда забор реально кончился)
+	while Config.autoBid and os.clock() < deadline do
+		local mine = collectMyCarryables()
+		if #mine == 0 then
+			-- пусто: если фаза забора ещё идёт или только началась — ждём появления предметов
+			if pickupActive then emptyStreak = 0 else emptyStreak = emptyStreak + 1 end
+			if emptyStreak >= 4 then break end   -- ~2с тишины подряд и забор не идёт → всё собрано
+			task.wait(0.5)
+		else
+			emptyStreak = 0
+			for _, it in ipairs(mine) do
+				if not Config.autoBid then break end
+				-- тачку держим рядом с предметом (для "Add to Vehicle" предмет летит в неё)
+				nudgeVehicleTo(it.base.Position, 22)
+				-- подходим в радиус активации (<10): сервер проверяет дистанцию персонажа
+				hrp.CFrame = CFrame.new(it.base.Position + Vector3.new(0, 3, 4))
+				task.wait(0.2)
+				-- hold=0.30 у "Add to Vehicle" → передаём HoldDuration вторым аргументом (надёжнее)
+				pcall(function() fireproximityprompt(it.prompt, it.prompt.HoldDuration) end)
+				task.wait(0.35)
+				local _, _, full = API.vehicleCargo()
+				if full then unloadVehicleSmart(true) end  -- переполнилась → выгрузить (ТП на плот и обратно к след. предмету)
+			end
+			task.wait(0.3)
+		end
 	end
 end
 
@@ -2344,7 +2379,7 @@ local function doGarageAuction(g)
 	autoHitEnabled = false
 	-- НЕ выходим из аукциона: после победы гараж открывается, предметы внутри
 	task.wait(1.5)  -- дать гаражу открыться/предметам появиться
-	collectWonItems(g.model)  -- зайти, открыть коробки, забрать предметы в тачку
+	collectWonItems()  -- забрать предметы из _Carryables (открыть коробки, "Add to Vehicle" в тачку)
 	task.wait(0.5)
 	-- выигранное лежит в ТАЧКЕ. Что с ним делать:
 	if Config.autoStock then
