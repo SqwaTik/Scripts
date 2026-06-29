@@ -480,17 +480,28 @@ local function unloadVehicleSmart(sellWhenFull)
 		if _G.__VH_sellNow then _G.__VH_sellNow() end; task.wait(2)
 	end
 end
--- держать тачку В РАДИУСЕ (~30 студ) от точки сбора, СБОКУ (предметы летят к ней, не мешает собирать).
--- Двигаем только если тачка дальше радиуса — без постоянных перепарковок.
+-- ПРИЗВАТЬ тачку к точке. КРИТИЧНО: PivotTo сервер НЕ признаёт ("тачка далеко находится"),
+-- поэтому используем RequestSpawn — он спавнит тачку прямо у игрока (проверено: 12→3 студа).
+-- Встаём игроком в точку и спавним. Кулдаун спавна на сервере ~6с.
 local function nudgeVehicleTo(pos, radius)
-	radius = radius or 28
+	radius = radius or 24
 	local v = API.findMyVehicle()
-	if not v then return false end
-	local pp = v.PrimaryPart or v:FindFirstChildWhichIsA("BasePart")
-	if pp and (pp.Position - pos).Magnitude <= radius then return true end  -- уже в радиусе — не трогаем
-	-- паркуем сбоку (+14 по X, +12 по Z), приподняв, чтобы не утонула/не мешала
-	pcall(function() v:PivotTo(CFrame.new(pos + Vector3.new(14, 4, 12))) end)
+	local pp = v and (v.PrimaryPart or v:FindFirstChildWhichIsA("BasePart"))
+	if pp and (pp.Position - pos).Magnitude <= radius then return true end  -- тачка уже рядом — не трогаем
+	local char = LocalPlayer.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")  -- инлайн (getHRP объявлена ниже по файлу)
+	if hrp then hrp.CFrame = CFrame.new(pos + Vector3.new(0, 3, 0)); task.wait(0.15) end
+	API.spawnVehicle()  -- RequestSpawn у игрока
+	task.wait(1.2)
 	return true
+end
+
+-- распоряжаться добычей сейчас? при returnWhenFull — ТОЛЬКО когда тачка полная
+-- (копим добычу в тачке, не дёргаем выгрузку/раскладку на каждый предмет)
+local function shouldDispose()
+	if not Config.returnWhenFull then return true end
+	local _, _, full = API.vehicleCargo()
+	return full
 end
 
 -- универсальные обёртки обработки (Wash/Grading/Repair/Locksmith)
@@ -575,12 +586,18 @@ function API.transferVehicleItems()
 	-- телепорт на плот (там зона выгрузки)
 	local tp = ev("Plot.TeleportToPlot")
 	if tp then pcall(function() tp:FireServer() end); task.wait(0.8) end
-	-- подгоняем тачку под игрока (на зону) и садимся в неё
-	if veh and hrp then
-		pcall(function() veh:PivotTo(CFrame.new(hrp.Position + Vector3.new(0, 3, 0))) end)
-		task.wait(0.35)
+	-- призвать тачку на зону к игроку. PivotTo сервер не признаёт ("тачка далеко") → RequestSpawn.
+	if hrp then
+		local pp = veh and (veh.PrimaryPart or veh:FindFirstChildWhichIsA("BasePart"))
+		if not (pp and (pp.Position - hrp.Position).Magnitude <= 22) then
+			API.spawnVehicle(); task.wait(1.2)
+			veh = API.findMyVehicle()  -- обновить ссылку после переспавна
+		end
+	end
+	-- садимся в тачку (нужно для выгрузки)
+	if veh and hum then
 		local seat = veh:FindFirstChildWhichIsA("VehicleSeat")
-		if seat and hum then pcall(function() seat:Sit(hum) end); task.wait(0.55) end
+		if seat then pcall(function() seat:Sit(hum) end); task.wait(0.55) end
 	end
 	-- обновляем список (после посадки) и выгружаем
 	guids = API.getVehicleItemGuids()
@@ -2024,9 +2041,35 @@ local function ensureTradeStaff()
 	if found then API.setStaffOffer(found, Config.tradeMinPercent or 80) end
 end
 
+-- посчитать свободные слоты полок БЕЗ телепорта (полки видны из мира, GetShopStock работает откуда угодно)
+-- возвращает -1 если полки не загружены (неизвестно → fallback на попытку с ТП)
+local function countFreeShelfSlots()
+	local myId = LocalPlayer.UserId
+	local total = 0
+	for _, d in ipairs(Workspace:GetDescendants()) do
+		if d:IsA("Model") and d:GetAttribute("IsShelf") and d:GetAttribute("PlacedBy") == myId then
+			for _, a in ipairs(d:GetDescendants()) do
+				if a:IsA("Attachment") and a.Name:find("SnapPoint") then total = total + 1 end
+			end
+		end
+	end
+	if total == 0 then return -1 end
+	local occ = 0
+	pcall(function()
+		local f = ev("Plot.GetShopStock")
+		local stock = f and f:InvokeServer()
+		if type(stock) == "table" then
+			for _, s in pairs(stock) do if type(s) == "table" then occ = occ + 1 end end
+		end
+	end)
+	return math.max(0, total - occ)
+end
+
 -- АВТО-РАСКЛАДКА ПО ПОЛКАМ
 -- Сигнатура (поймана хуком): PlaceStockItem(itemGuid, itemId, snapCFrame, price, shelfGuid, snapName)
 local function stockShelves()
+	-- УМНО: если все полки заняты — НЕ телепаемся и НЕ выгружаем тачку (разложим, когда освободится слот)
+	if countFreeShelfSlots() == 0 then return end
 	-- 0) если в тачке есть добыча — сперва выгрузить её в инвентарь
 	-- (transferVehicleItems сам тепает на плот, подгоняет тачку на зону и садит игрока)
 	if #API.getVehicleItemGuids() > 0 then
@@ -2117,24 +2160,19 @@ end
 task.spawn(function()
 	while ScreenGui.Parent do
 		local ok, err = pcall(function()
-			-- возврат на базу ТОЛЬКО когда тачка реально полна (живой CargoWeight, не устаревшее событие)
-			if Config.returnWhenFull then
-				local _, _, full = API.vehicleCargo()
-				if full then
-					tpToBase(); task.wait(1)
-					API.transferVehicleItems(); task.wait(1.2)  -- после выгрузки CargoWeight падает -> повтора не будет
-				end
-			end
-			-- свежую добычу из тачки → в инвентарь ПЕРЕД обработкой, иначе ремонт/мойка/оценка её не видят
-			-- (источник обработки = Inventory; раньше тачку выгружал только stockShelves, ПОСЛЕ ремонта)
-			if (Config.autoRepair or Config.autoWash or Config.autoGrade) and #API.getVehicleItemGuids() > 0 then
+			-- пора ли распоряжаться добычей? при returnWhenFull — только когда тачка ПОЛНАЯ.
+			-- иначе копим в тачке (не выгружаем/не раскладываем на каждый предмет).
+			local dispose = shouldDispose()
+			-- выгрузить добычу из тачки → инвентарь (для обработки/раскладки/продажи) — только когда пора
+			if dispose and #API.getVehicleItemGuids() > 0 then
 				API.transferVehicleItems()
 			end
-			if Config.autoSell then _G.__VH_sellNow() end
+			-- обработка инвентаря идёт ВСЕГДА (работает с тем, что уже в инвентаре, не с тачкой)
+			if Config.autoSell and dispose then _G.__VH_sellNow() end
 			if Config.autoWash then autoProcess("Wash", Config.washMin) end
 			if Config.autoGrade then autoProcess("Grade", Config.gradeMin) end
 			if Config.autoRepair then autoProcess("Repair", Config.repairMin or 0) end
-			if Config.autoStock then stockShelves() end  -- разложить предметы по полкам
+			if Config.autoStock and dispose then stockShelves() end  -- раскладка — только когда пора распоряжаться
 			if Config.autoTrade then ensureTradeStaff() end
 			if Config.autoBuyDrink then
 				-- не покупаем, если зелье этого уровня уже активно (ActiveLuckDrinkExpireAt_<tier> в будущем)
@@ -2280,6 +2318,7 @@ end
 
 -- РАСПОРЯДИТЬСЯ выигранным (выгрузить тачку и разложить/продать по настройкам)
 local function disposeWon()
+	if not shouldDispose() then return end                      -- копим в тачке до полного веса
 	if Config.autoStock then
 		stockShelves()                                          -- сам выгрузит тачку → инвентарь → полки
 	elseif Config.autoSell then
@@ -2438,7 +2477,8 @@ local function doGarageAuction(g)
 			autoHitEnabled = false
 		end
 		task.wait(0.2)
-	until (not areaActive) or (not Config.autoBid) or (os.clock()-bt) > 40
+	-- ВЫХОД сразу как пошла фаза забора (победа) — не ждём 40с/сброса areaActive
+	until (not areaActive) or pickupActive or (#collectMyCarryables() > 0) or (not Config.autoBid) or (os.clock()-bt) > 40
 	autoHitEnabled = false
 	-- НЕ выходим из аукциона: после победы предметы спавнятся в _Carryables.
 	-- collectWonItems сам дождётся появления (или быстро выйдет, если проиграли).
